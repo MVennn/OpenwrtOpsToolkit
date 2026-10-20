@@ -108,6 +108,7 @@ openwrt-ops-toolkit/
 │  ├─ qq_rule_probe.py       边抓日志边看命中了哪条规则
 │  └─ quic_probe.py         QUIC 能力探测
 ├─ tools/check-docs.py       文档自检（链接 / 锚点 / 引言块 / 孤儿）
+├─ tools/gitlab-setup.py     批量配置 GitLab 项目：可见性 / 描述 / 话题 / 头像
 ├─ docs/                    文档（README.md 是唯一索引）
 ├─ memories/                记忆文档：踩过的坑与实测结论
 └─ assets/                   logo
