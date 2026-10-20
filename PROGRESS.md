@@ -38,3 +38,17 @@
 - 待定：源仓与本仓的**同步机制**（目前是手工对拍，没有自动化）。
 
 ## 状态：进行中（建仓完成，真机验证待做）
+# 2026-10-21 README 收敛
+
+## 已完成变更
+- [x] 重写根 `README.md`（logo 头 + 徽章 + 用户门面，无「一句话」块）
+- [x] 目录结构 / 文件清单迁入 `docs/TOOLS.md`，DOC-RULES / docs/README 引用同步
+- [x] `tools/check-docs.py` 豁免根 README 的引言块检查
+- [x] CHANGELOG 增补「README 收敛批次」
+
+## 自检
+- check-docs ✓（19 篇）；ast.parse ✓；`sh -n openwrt/*.sh` ✓；`openwrt/conf/device.conf` 不存在 ✓
+
+## 状态: 已完成
+
+---

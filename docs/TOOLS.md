@@ -1,0 +1,45 @@
+# 工具清单
+
+> **一句话**：三个域每个脚本干什么、会不会改设备状态，以及完整的目录结构 —— 根 README 只留「快速开始」速览。
+
+## 目录结构
+
+```
+openwrt-ops-toolkit/
+├─ openwrt/
+│  ├─ guardian.sh            网络守护：出口组复原 / nft 表补载 / 探活
+│  ├─ recover-now.sh         离线恢复：DNS 解析全失败、代理离线
+│  ├─ rc.local               开机自启模板（/tmp 运行时目录、nft 表、/var 兜底）
+│  ├─ post-sc-update.sh      ShellCrash 官方脚本更新后恢复本地补丁
+│  └─ conf/device.conf.example  设备配置样例（复制成 device.conf 再改）
+├─ mihomo/
+│  ├─ mihomo_api.py          控制 API 客户端库（IPv6 + 重试 + chunked 解码）
+│  ├─ rule_audit.py          规则审计器：声明目标 vs 实际生效目标
+│  ├─ scan_rules.py          流式扫 /rules
+│  ├─ mihomo_log.py          实时日志（临时提 debug 级再恢复）
+│  ├─ capture_live.py        增量抓日志到文件
+│  └─ latency_probe.py       策略组与节点握手延迟
+├─ cdn/
+│  ├─ qq_cdn_probe.py        CDN 连通性：分 DNS / TCP / TLS / HTTP 段计时
+│  ├─ qq_dns_path.py         判定域名是否落在 cn 规则集内
+│  ├─ qq_domain_classify.py  逐域名判定：直连还是漏网
+│  ├─ qq_rule_probe.py       边抓日志边看命中了哪条规则
+│  └─ quic_probe.py          QUIC 能力探测
+├─ tools/check-docs.py       文档自检（链接 / 锚点 / 引言块 / 孤儿）
+├─ tools/gitlab-setup.py     批量配置 GitLab 项目：可见性 / 描述 / 话题 / 头像
+├─ docs/                     文档（README.md 是唯一索引）
+└─ assets/                   logo
+```
+
+## 会改设备状态吗
+
+| 文件 | 作用 | 会改设备状态吗 |
+|---|---|---|
+| `openwrt/guardian.sh` | 每 5 分钟巡检一次，必要时做最小化修复 | ⚠️ 会（但只做自愈动作） |
+| `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
+| `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |
+| `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁 | ⚠️ 会（覆盖 starts/ 下三个文件） |
+| `mihomo/*.py` | 诊断 | ❌ 只读 |
+| `cdn/*.py` | 诊断 | ❌ 只读 |
+
+「会改什么、怎么改」的机制正本见 [ARCHITECTURE.md](ARCHITECTURE.md)；坑位见 [PITFALLS.md](PITFALLS.md)。

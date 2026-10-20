@@ -58,8 +58,8 @@ docs/ 分四类（索引见 [README.md](README.md)）：
    [../openwrt/conf/device.conf.example](../openwrt/conf/device.conf.example)（带说明）；
    脚本里只写**占位符默认值**，不复述真实值。
 3. **排障步骤 ↔ 已知坑**：现象 → 步骤 → 解法的**完整流程**只写在
-   [TROUBLESHOOTING.md](TROUBLESHOOTING.md)；仓库根 README 的「已知坑」
-   只写**一句话现象 + 一句后果**，不复述排查步骤。
+   [TROUBLESHOOTING.md](TROUBLESHOOTING.md)；机制与红线只写在
+   [PITFALLS.md](PITFALLS.md)，两边互链不复述。
 4. **凭据明文 ↔ 任何其它文档**：明文值只出现在「它本来就在那儿」的地方
    （历史文档、证据采集）；[SECRETS.md](SECRETS.md) 只写**位置**，不抄值。
 5. **CHANGELOG ↔ Release 说明**：CHANGELOG 是**开发者记录**（症状 / 根因 / 改法）；
@@ -113,7 +113,7 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 
 | 变更 | 必须同步 |
 |---|---|
-| 改脚本（`openwrt/` `mihomo/` `cdn/`） | 仓库根 [README.md](../README.md) 的「文件清单」表、[ARCHITECTURE.md](ARCHITECTURE.md) 的「会改什么」、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
+| 改脚本（`openwrt/` `mihomo/` `cdn/`） | [TOOLS.md](TOOLS.md) 的工具表、[ARCHITECTURE.md](ARCHITECTURE.md) 的「会改什么」、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
 | 新增/改了一个环境变量 | [../openwrt/conf/device.conf.example](../openwrt/conf/device.conf.example)、[SECRETS.md](SECRETS.md) 的变量表 |
 | 脚本报错文案或用法变了 | [PITFALLS.md](PITFALLS.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
 | 新增 / 删除 / 改名文件 | 仓库根 [README.md](../README.md) 的目录结构与文件清单表 |
