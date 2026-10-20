@@ -7,18 +7,7 @@
 
 ---
 
-## [未发布]
-
-### README 收敛批次（2026-10-21）
-
-参照系列仓 gsauxiliary 的门面格式，把根 `README.md` 收敛为**面向用户**的说明：
-
-- 调整 文档 —— 根 README 重写为 logo 头 + 徽章 + 这是什么 / 适用环境 / 使用 / 反馈 / 免责声明 / 开源鸣谢 / 许可证；顶部不写「一句话」引言块（对齐 gsauxiliary 门面）
-- 调整 文档 —— 「目录结构」「文件清单」迁入 [docs/TOOLS.md](docs/TOOLS.md)（工具清单正本）；「已知坑」统一看 docs/PITFALLS.md
-- 调整 文档 —— DOC-RULES / docs/README 里指向根 README「文件清单 / 已知坑」的引用同步改指新位置
-- 调整 工具 —— `tools/check-docs.py` 豁免根 README 的「一句话」引言块检查
-
- — 2026-10-21
+## [未发布] — 2026-10-21
 
 > 本仓刚从一个私有工作目录里拆出来，首版建仓。
 
@@ -46,3 +35,12 @@
 - 待补 `docs/RELEASE.md` —— 发版规则（交付流程、打 tag、发 Release 说明的步骤）尚未成篇；
   目前的发版约定散在 `docs/VERSIONING.md` 与 `docs/release-notes/README.md` 里。
 - 待补 截图 —— README 还没有界面截图（`openwrt/` 是脚本集，没有界面）。
+
+### README 收敛批次（2026-10-21）
+
+参照系列仓 gsauxiliary 的门面格式，把根 `README.md` 收敛为**面向用户**的说明：
+
+- 调整 文档 —— 根 README 重写为 logo 头 + 徽章 + 这是什么 / 适用环境 / 使用 / 反馈 / 免责声明 / 开源鸣谢 / 许可证；顶部不写「一句话」引言块（对齐 gsauxiliary 门面）
+- 调整 文档 —— 「目录结构」「文件清单」迁入 [docs/TOOLS.md](docs/TOOLS.md)（工具清单正本）；「已知坑」统一看 docs/PITFALLS.md
+- 调整 文档 —— DOC-RULES / docs/README 里指向根 README「文件清单 / 已知坑」的引用同步改指新位置
+- 调整 工具 —— `tools/check-docs.py` 豁免根 README 的「一句话」引言块检查
