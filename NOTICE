@@ -1,0 +1,62 @@
+OpenwrtOpsToolkit
+Copyright 2026 openwrt-ops-toolkit contributors
+
+This product is licensed under the MIT License. See the LICENSE file in the
+repository root for the full text.
+
+==============================================================================
+Third-party software and services
+==============================================================================
+
+This repository contains **no third-party source code**. It drives the
+following projects and services, each under its own license:
+
+- ShellCrash (https://github.com/juewuy/ShellCrash)
+  A transparent-proxy deployment framework for OpenWrt. This repository reads
+  and writes the runtime files it manages (`/etc/ShellCrash/`), and
+  `openwrt/post-sc-update.sh` restores locally patched files under its
+  `starts/` directory.
+  Licensed under the GNU General Public License v3.0 (GPL-3.0).
+  Why used: the device-side scripts assume ShellCrash's directory layout and
+  its `start.sh` / `task/task.sh` entry points.
+
+- mihomo / Clash.Meta (https://github.com/MetaCubeX/mihomo)
+  The proxy core behind ShellCrash. It defines the `config.yaml` schema, the
+  control API used by `mihomo/`, and the `SAFE_PATHS` behavior that
+  `openwrt/recover-now.sh` works around.
+  Licensed under the MIT License.
+  Why used: this repository's diagnostic tools speak its control API and
+  reason about its rule semantics.
+
+- OpenWrt (https://openwrt.org)
+  The router firmware itself. `openwrt/` scripts target its `rc.local`
+  convention, `nftables` subsystem, `busybox` shell and `jsonfilter`/
+  `uci` tooling.
+  Licensed under the GNU General Public License v2.0 (GPL-2.0) for the
+  base system.
+  Why used: the scripts are meant to run on the device.
+
+- MetaCubeX meta-rules-dat (https://github.com/MetaCubeX/meta-rules-dat)
+  The geosite/geoip classification dataset referenced by rules and rulesets.
+  This repository does **not** redistribute it; tools fetch it by URL.
+  Licensed under the GNU General Public License v3.0 (GPL-3.0).
+
+==============================================================================
+Derivative works
+==============================================================================
+
+`openwrt/post-sc-update.sh` restores **locally patched copies** of ShellCrash's
+`starts/` scripts. Those patched files retain the upstream GPL-3.0 copyright
+headers and are distributed under GPL-3.0 terms, as recorded in
+`docs/UPSTREAM.md`.
+
+==============================================================================
+Credentials
+==============================================================================
+
+This repository stores **no credentials**. The mihomo control API secret and
+the router password are read from environment variables. Device-specific
+values (node names, policy-group names, nft table paths) live in
+`openwrt/conf/device.conf`, which is not tracked by git.
+
+See docs/SECRETS.md for the location index.

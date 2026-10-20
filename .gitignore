@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# OpenwrtOpsToolkit —— 版本控制忽略规则
+#
+# 原则：**源码与文档一律入库**；只排除「设备配置」「凭据」「运行残留」。
+# ---------------------------------------------------------------------------
+
+# --- 设备配置（每台设备一份，含节点名/策略组名，绝不入库）---
+openwrt/conf/device.conf
+**/device.conf
+!openwrt/conf/device.conf.example
+
+# --- 凭据 ---
+*.key
+*.key.orig
+*.crt
+*.crt.orig
+*.pem
+*.p12
+*.pfx
+*.env
+.env
+.env.*
+!*.env.example
+wg-*.conf
+opencode.key
+
+# --- 运行产物与日志 ---
+*.log
+*.log.*
+*.pid
+*.sock
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Python 缓存 ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node（诊断工具里若用到）---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- 文档自检的临时输出 ---
+report*.md
+REPORT*.md
+!docs/**
+findings*.json
+
+# --- 本地索引与编辑器 ---
+.codegraph/
+.idea/
+.vscode/
+*.code-workspace

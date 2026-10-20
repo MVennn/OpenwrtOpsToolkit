@@ -1,0 +1,121 @@
+# rc.local —— OpenWrt 开机自启模板（设备侧实例化后覆盖 /etc/rc.local）
+#
+# 本文件是**模板**：里面的路径、端口、表名都来自配置，装到设备上之前先写好
+# device.conf（见 conf/device.conf.example）。
+#
+# 执行时机：/etc/init.d/done（S95）里 `sh /etc/rc.local` 调用 —— 早于 S99shellcrash。
+# 所以这里可以先把 tmpfs 上的运行时目录建出来。
+#
+# 硬约束（上游行为，见 docs/UPSTREAM.md）：
+#   1. 由 `sh` 调用，不是当可执行文件跑 —— 不需要 exec 位
+#   2. 必须以 `exit 0` 收尾
+#   3. 每一步都要能重复执行（幂等）—— 机器可能重启多次
+
+# ---------------------------------------------------------------------------
+# 配置加载：环境变量 > device.conf > 本文件里的默认值
+# ---------------------------------------------------------------------------
+OPS_CONF="${DEVICE_CONF:-}"
+if [ -z "$OPS_CONF" ]; then
+  OPS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+  [ -n "$OPS_DIR" ] || OPS_DIR="/etc"
+  for _c in "$OPS_DIR/conf/device.conf" /etc/openwrt-ops/device.conf; do
+    if [ -f "$_c" ]; then OPS_CONF="$_c"; break; fi
+  done
+fi
+
+_OPS_VARS="RUNTIME_DIR NFT_DIR NFT_TABLES NFT_DNS_TABLES ROUTER_HEALTH_DIR DNS_PORT DNS_WAIT_LOOPS VAR_RUNTIME_DIRS REBOOT_VERIFY"
+_OPS_SNAP=""
+for _v in $_OPS_VARS; do
+  eval "[ \"\${${_v}+set}\" = set ]" || continue
+  eval "_O_SNAP_${_v}=\$(printf '%s' \"\${${_v}-}\")"
+  _OPS_SNAP="$_OPS_SNAP $_v"
+done
+if [ -n "$OPS_CONF" ] && [ -f "$OPS_CONF" ]; then
+  if sh -n "$OPS_CONF" 2>/dev/null; then
+    . "$OPS_CONF" 2>/dev/null
+  else
+    echo "rc.local: 配置文件 $OPS_CONF 语法错误，已忽略（走默认值）" >&2
+  fi
+fi
+for _v in $_OPS_SNAP; do
+  eval "${_v}=\$(printf '%s' \"\${_O_SNAP_${_v}-}\")"
+done
+
+# ---------------------------------------------------------------------------
+# 默认值
+# ---------------------------------------------------------------------------
+RUNTIME_DIR="${RUNTIME_DIR:-/tmp/ShellCrash}"
+NFT_DIR="${NFT_DIR:-/etc}"
+NFT_TABLES="${NFT_TABLES:-quicguard googlecn mixedport}"
+NFT_DNS_TABLES="${NFT_DNS_TABLES:-googleroute}"
+ROUTER_HEALTH_DIR="${ROUTER_HEALTH_DIR:-/etc/router-health}"
+DNS_PORT="${DNS_PORT:-1053}"
+DNS_WAIT_LOOPS="${DNS_WAIT_LOOPS:-45}"
+REBOOT_VERIFY="${REBOOT_VERIFY:-reboot-verify.sh}"
+# /var 在多数 OpenWrt 上是指向 /tmp 的软链，这些运行时目录被误删会导致
+# dnsmasq 起不来（-C /var/etc/dnsmasq.conf.*）等服务异常，开机时兜底重建
+VAR_RUNTIME_DIRS="${VAR_RUNTIME_DIRS:-/var/etc /var/lib /var/run /var/lock /var/state /var/spool /var/shm /var/tmp /var/overlay /var/sysinfo /var/odhcpd-piodir /var/resolv.conf.d /var/log}"
+
+# 加载一张 nft 表（已存在就跳过 —— 幂等）
+load_nft_table() {
+  _t=$1
+  [ -z "$_t" ] && return 0
+  nft list table inet "$_t" >/dev/null 2>&1 && return 0
+  if [ -f "$NFT_DIR/$_t.nft" ]; then
+    nft -f "$NFT_DIR/$_t.nft" >/dev/null 2>&1 && logger -t rc.local "nft 表 inet $_t 已加载"
+  else
+    logger -t rc.local "nft 表 inet $_t 缺失且 $NFT_DIR/$_t.nft 不存在"
+  fi
+}
+
+# 运行时目录：/tmp 是 tmpfs，开机前先建出来
+mkdir -p "$RUNTIME_DIR"
+
+# /var 运行时目录兜底重建
+for d in $VAR_RUNTIME_DIRS; do
+  [ -z "$d" ] && continue
+  mkdir -p "$d" 2>/dev/null
+done
+
+# 不含 DNS 劫持的表：直接加载
+for t in $NFT_TABLES; do
+  case " $NFT_DNS_TABLES " in
+    *" $t "*) continue ;;
+  esac
+  load_nft_table "$t"
+done
+
+# 开机自检：若上次是用重启验收脚本触发的重启，就跑一遍验收并出报告
+# （busybox crond 不支持 @reboot，所以用标记文件 + rc.local 派发）
+if [ -f "$ROUTER_HEALTH_DIR/.reboot-pending" ] && [ -n "$REBOOT_VERIFY" ]; then
+  /bin/ash "$ROUTER_HEALTH_DIR/$REBOOT_VERIFY" post
+fi
+
+# 含 DNS 劫持的表：核心还没起来就加载的话，内网所有域名会被指向一个没人监听的端口
+# —— 表现就是「WiFi 连上了但没网」。所以先等核心的 DNS 端口就绪再加载；
+# 等不到就不加载（守护进程会在核心起来后补上）。
+# 没有待加载的 DNS 表时**不等待** —— 否则没用 mihomo DNS 的设备开机要多等 90 秒。
+DNS_PENDING=""
+for t in $NFT_DNS_TABLES; do
+  [ -z "$t" ] && continue
+  [ -f "$NFT_DIR/$t.nft" ] && DNS_PENDING="$DNS_PENDING $t"
+done
+if [ -z "$DNS_PENDING" ]; then
+  logger -t rc.local "没有待加载的 DNS 劫持表（$NFT_DIR 下无对应 .nft），跳过等待"
+else
+  i=0
+  while [ "$i" -lt "$DNS_WAIT_LOOPS" ]; do
+    netstat -lntp 2>/dev/null | grep -q ":$DNS_PORT" && break
+    sleep 2
+    i=$((i + 1))
+  done
+  if netstat -lntp 2>/dev/null | grep -q ":$DNS_PORT"; then
+    for t in $DNS_PENDING; do
+      load_nft_table "$t"
+    done
+  else
+    logger -t rc.local "mihomo DNS($DNS_PORT) 未就绪，暂不加载$DNS_PENDING（含 DNS 劫持），交由守护进程补载"
+  fi
+fi
+
+exit 0

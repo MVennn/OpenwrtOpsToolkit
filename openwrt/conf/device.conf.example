@@ -1,0 +1,86 @@
+# 设备配置样例 —— 复制成 device.conf 后按你的环境改。
+# 脚本用 . /path/to/device.conf 读它；也可用同名环境变量覆盖。
+#
+# 加载顺序（先命中先用）：
+#   1) 环境变量 DEVICE_CONF 指定的文件
+#   2) <脚本所在目录>/conf/device.conf
+#   3) /etc/openwrt-ops/device.conf        （设备上统一放这里）
+#
+# 优先级：同名环境变量 > 本文件 > 脚本内置默认值。
+# 本文件按 shell 语法解析，可以写引号；改完先 `sh -n device.conf` 过一遍。
+
+# ShellCrash 安装目录（官方默认就是 /etc/ShellCrash）
+CRASHDIR=/etc/ShellCrash
+
+# 守护要盯的策略组名（你订阅里的组名，不是本项目固定的）
+AI_GROUP="你的 AI 接口组名"
+CLEAN_GROUP="你的干净出口组名"
+
+# 出口组里的节点（正则），用来判断出口组有没有被改坏
+CLEAN_NODE="你的干净节点名"
+CL_CANDIDATES="备用节点A|备用节点B|你的干净节点名"
+
+# nft 表的部署路径
+NFT_DIR=/etc
+
+# 自建健康检查目录（开机自检用）
+ROUTER_HEALTH_DIR=/etc/router-health
+
+# ---------------------------------------------------------------------------
+# 以下为可选项，不写就用脚本内置默认值
+# ---------------------------------------------------------------------------
+
+# AI 组的兜底目标组（AI 出口被判为不可信时切到这里）；留空 = 不做该项复位
+#AI_FALLBACK_GROUP="你的干净网页组名"
+
+# 通用流量组与它的兜底组（自动选择/故障转移那类）；留空 = 跳过
+#POOL_GROUP="你的通用代理组名"
+#POOL_FALLBACK_GROUP="你的自动选择组名"
+
+# 手动切换组（填了才会顺着它解析真实出口节点）
+#MANUAL_GROUP="你的手动切换组名"
+
+# 判定为「不可信出口」的节点通配（`|` 分隔，支持 * ? []）；留空 = 不判
+# 匹配到就把 AI 组复位到 AI_FALLBACK_GROUP
+#AI_BAD_NODES="*-优化|*-备用*"
+
+# 判定为「要复位」的通用池节点通配（`|` 分隔）；留空 = 不判
+#POOL_BLOCKED_NODES="*-香港*"
+
+# 运行态目录（tmpfs，重启即清）与守护日志
+#RUNTIME_DIR=/tmp/ShellCrash
+#GUARDIAN_LOG=/tmp/ShellCrash/guardian.log
+
+# 端口：控制 API / 透明代理 / 混合口 / DNS
+#CTRL_HOST=127.0.0.1
+#CTRL_PORT=9999
+#PROXY_PORT=7890
+#MIXED_PORT=7892
+#DNS_PORT=1053
+
+# 需要守护补载的 nft 表（表名，空格分隔；文件是 $NFT_DIR/<表名>.nft）
+#NFT_TABLES="quicguard googleroute googlecn"
+
+# 其它路径
+#CRON_FILE=/etc/crontabs/root
+#START_SH=/etc/ShellCrash/start.sh
+#TASK_SH=/etc/ShellCrash/task/task.sh
+#LEGACY_WD=/etc/ShellCrash/starts/start_legacy_wd.sh
+#API_CFG=/etc/ShellCrash/configs/ShellCrash.cfg
+
+# 探测地址与阈值（秒）
+#PROBE_URL=https://api.ipify.org
+#CLEAN_PROBE_URL=https://gemini.google.com/
+#CC_PROBE_URL=https://support.google.com/gemini/answer/13575153
+#CC_EXPECT=IN
+#EXIT_MAX_SEC=3
+#CLEAN_EXIT_MAX_SEC=4
+
+# 阈值
+#MEM_LOW_MB=30
+#TMPFS_WARN_PCT=80
+#FALLBACK_HEAL_INTERVAL=1800
+#ALIVE_STALE_SEC=1800
+
+# /tmp 水位过高时要清的临时文件（空格分隔）
+#TMPFS_CLEAN_FILES="/tmp/pre-reboot-config.tar.gz /tmp/mihomo-new /tmp/mihomo-arm64.gz"

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512" role="img" aria-label="OpenWrt 运维工具箱">
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="54" y1="0" x2="54" y2="108">
+      <stop offset="0" stop-color="#2B3242"/>
+      <stop offset="1" stop-color="#161A22"/>
+    </linearGradient>
+    <linearGradient id="line" gradientUnits="userSpaceOnUse" x1="33.08" y1="75.39" x2="67.4" y2="29.79">
+      <stop offset="0" stop-color="#FFC24A"/>
+      <stop offset="1" stop-color="#FF7A00"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="108" height="108" rx="24" ry="24" fill="url(#bg)"/>
+  <g stroke="url(#line)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M42,49 L42,42 Q42,35 49,35 L59,35 Q66,35 66,42 L66,49" stroke-width="6"/>
+    <rect x="21" y="48" width="66" height="36" rx="6" stroke-width="6"/>
+    <path d="M54,58 L54,74" stroke-width="5"/>
+  </g>
+</svg>
