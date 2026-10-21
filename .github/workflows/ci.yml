@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: 静态检查
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: 装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 装 shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: ShellCheck（设备侧脚本）
+        run: find openwrt -name '*.sh' -exec shellcheck -S warning {} + || true
+
+      - name: Python 语法
+        run: python3 -c "import ast,glob; [ast.parse(open(f,encoding='utf-8').read(), f) for f in glob.glob('**/*.py', recursive=True)]"
+
+      - name: JavaScript 语法
+        run: find . -name '*.js' -not -path './third-party/*' -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check
+
+      - name: Shell 语法与设备配置守卫
+        run: |
+          find openwrt -name '*.sh' -print0 | xargs -0 -n1 sh -n
+          # 设备配置不该入库
+          test ! -e openwrt/conf/device.conf
+
+  docs:
+    name: 文档与凭据扫描
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: 文档自检
+        run: python3 tools/check-docs.py
+
+      # 凭据不该出现在仓里
+      - name: 明文凭据扫描
+        run: |
+          if grep -rInE 'oc_sk_[A-Za-z0-9]{6,}|password *= *"[^"]{4,}"|SECRET *= *"[0-9a-f]{16,}"' \
+               --exclude-dir=.git --exclude-dir=third-party . ; then
+            echo "发现疑似明文凭据，提交被拦下"; exit 1
+          fi

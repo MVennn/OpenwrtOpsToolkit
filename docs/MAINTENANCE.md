@@ -356,7 +356,7 @@ git diff --cached | grep -nE 'oc_sk_|SECRET *= *"[0-9a-f]{16,}|password *= *"[^"
 test ! -e openwrt/conf/device.conf
 ```
 
-CI（`.gitlab-ci.yml`）跑的就是这几样，外加一条明文凭据扫描。
+CI（`.github/workflows/ci.yml`）跑的就是这几样，外加一条明文凭据扫描。
 
 ### 5.4 破坏性变更要显式标注
 

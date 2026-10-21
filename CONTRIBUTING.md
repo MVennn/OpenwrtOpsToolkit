@@ -71,7 +71,7 @@ python3 -c "import ast,glob; [ast.parse(open(f,encoding='utf-8').read(), f) for 
 python3 tools/check-docs.py
 ```
 
-CI（`.gitlab-ci.yml`）跑的就是这三样，外加一条**明文凭据扫描**。
+CI（`.github/workflows/ci.yml`）跑的就是这三样，外加一条**明文凭据扫描**。
 
 ## 提交信息
 

@@ -10,7 +10,7 @@
 
 ## 怎么报告
 
-**请不要开公开 Issue 报告安全问题。** 用 GitLab 的
+**请不要开公开 Issue 报告安全问题。** 用 GitHub 的
 「Security → Report a vulnerability」提私有报告，或直接联系维护者。
 
 报告里请写清：受影响的文件 / 触发条件 / 影响面（谁能做什么）/ 你建议的修法。

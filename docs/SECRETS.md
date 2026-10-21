@@ -71,7 +71,7 @@ git diff --cached | grep -nE 'oc_sk_|SECRET *= *"[0-9a-f]{16,}|password *= *"[^"
 git diff --cached | grep -nE '\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b|[0-9a-f]{4}:[0-9a-f]{4}:'
 ```
 
-CI（`.gitlab-ci.yml` 的 `secret-scan` 段）会自动跑第 3 条。
+CI（`.github/workflows/ci.yml`）的凭据扫描步骤会自动跑第 3 条。
 
 ## 5. 几条硬规矩
 
