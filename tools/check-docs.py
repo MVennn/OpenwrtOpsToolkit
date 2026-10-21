@@ -21,7 +21,7 @@ SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", "third-party", "memo
             # vault/ 被 .gitignore 排除，不属于版本库里的文档
             "vault",
             # .work/ 是本地工作区（草稿、台账、工具产物），不入库，不是版本库里的文档
-            ".work"}
+            ".work", ".codegraph"}
 # 冻结目录：归档 / 拆分记录是**历史**，不套用活文档的规则（引言块、孤儿判定）
 FROZEN_DIRS = ("docs/archive/", "docs/split/", "archive/")
 SKIP_EXT = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".mrs", ".gz", ".pyc", ".woff", ".woff2"}

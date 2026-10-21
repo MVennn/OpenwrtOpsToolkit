@@ -7,7 +7,7 @@
 
 ---
 
-## [未发布] — 2026-10-21
+## [0.1.0] — 2026-10-21
 
 > 本仓刚从一个私有工作目录里拆出来，首版建仓。
 
@@ -44,3 +44,10 @@
 - 调整 文档 —— 「目录结构」「文件清单」迁入 [docs/TOOLS.md](docs/TOOLS.md)（工具清单正本）；「已知坑」统一看 docs/PITFALLS.md
 - 调整 文档 —— DOC-RULES / docs/README 里指向根 README「文件清单 / 已知坑」的引用同步改指新位置
 - 调整 工具 —— `tools/check-docs.py` 豁免根 README 的「一句话」引言块检查
+
+### 整理批次（2026-10-21）
+
+- 调整 工具 —— `tools/check-docs.py` 的跳过目录补 `.codegraph/`（`.work/` 此前已跳过），
+  本地索引不再参与版本库文档检查。
+- 清理 工作区 —— 删除 `.work/readme-refresh/`（README 门面生成的一次性中间产物，
+  最终 logo / 社交预览已入库）。
