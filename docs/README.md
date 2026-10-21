@@ -12,13 +12,13 @@
 
 | 文档 | 一句话定位 |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 三个域各解决什么问题、**会改设备哪些状态**、配置怎么读、诊断链路怎么走 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 三个域各解决什么问题、适合谁、**设计原则（只读优先 / 最小化修复）**、**会改设备哪些状态**、配置怎么读、诊断链路怎么走 |
 
 ## 二、工具专项
 
 | 文档 | 一句话定位 |
 |---|---|
-| [TOOLS.md](TOOLS.md) | 工具清单（**正本**）：三个域每个脚本干什么、会不会改设备状态、目录结构 |
+| [TOOLS.md](TOOLS.md) | 工具清单（**正本**）：三个域每个脚本干什么、会不会改设备状态、目录结构（三个域各解决什么问题见 [ARCHITECTURE.md](ARCHITECTURE.md) §1） |
 | [PITFALLS.md](PITFALLS.md) | 踩坑总汇（**正本**）：每条写清「为什么错」与「下次怎么避」 |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | 排错手册（**正本**）：按「现象 → 排查步骤 → 原因 / 解法」组织，标题即检索词 |
 
@@ -36,7 +36,7 @@
 
 | 位置 | 一句话定位 |
 |---|---|
-| 仓库根 [README.md](../README.md) | 门面：这是什么、适用环境、使用、反馈、免责声明、开源鸣谢、许可证 |
+| 仓库根 [README.md](../README.md) | 门面：这是什么、环境要求、使用、反馈、免责声明、开源鸣谢、许可证 |
 | 仓库根 [AGENTS.md](../AGENTS.md) | 机器协议：PROGRESS 归属、设备值外置、CodeGraph |
 | 仓库根 [CHANGELOG.md](../CHANGELOG.md) | 开发者记录；**版本号本身**在这里维护，**进位规则**见 [VERSIONING.md](VERSIONING.md) |
 | 仓库根 [PROGRESS.md](../PROGRESS.md) | 本仓唯一进度台账（追加式批次日志） |

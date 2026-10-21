@@ -246,9 +246,9 @@ sh openwrt/guardian.sh --dry-run
 
 | 改了什么 | 必须同步 |
 |---|---|
-| 改了脚本行为 | 仓库根 [README.md](../README.md) 的文件清单表、对应文档的描述 |
+| 改了脚本行为 | [TOOLS.md](TOOLS.md) 的工具表、对应文档的描述 |
 | 改了配置键 | `openwrt/conf/device.conf.example`、[ARCHITECTURE.md](ARCHITECTURE.md) §3.5 的键表、**本篇 §1.3** |
-| 新增 / 删除 / 改名文件 | 仓库根 [README.md](../README.md) 的目录结构与文件清单表 |
+| 新增 / 删除 / 改名文件 | [TOOLS.md](TOOLS.md) 的目录结构与工具表 |
 | 新增 / 删除 / 改名文档 | [docs/README.md](README.md) 索引 |
 | 改了踩坑行为 | [PITFALLS.md](PITFALLS.md) |
 | 改了排障步骤 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |

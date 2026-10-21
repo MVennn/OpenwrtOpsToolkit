@@ -33,14 +33,14 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 
 | 规则 | 正本 |
 |---|---|
-| 三个域的边界、脚本会改设备什么、配置怎么读 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| 三个域的边界、**设计原则（只读优先 / 最小化修复）**、脚本会改设备什么、配置怎么读 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 设备配置怎么填、脚本怎么装 | [../openwrt/README.md](../openwrt/README.md) |
 | 上游项目与派生件的许可边界 | [UPSTREAM.md](UPSTREAM.md) |
 | 保留策略与清理流程（备份区命名 / 修剪阈值 / 改完即删） | [MAINTENANCE.md](MAINTENANCE.md) |
 | 排障步骤 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | 凭据存放位置与轮换建议 | [SECRETS.md](SECRETS.md) |
 | Release 说明格式（动词 / 一行一条 / 覆盖率红线 / 固定尾巴） | [release-notes/README.md](release-notes/README.md) |
-| 文件清单（本地路径 → 路由器目标路径 → 被谁调用 → 回退方式） | 仓库根 [README.md](../README.md) 的「文件清单表」 |
+| 文件清单与目录结构（每个脚本干什么、会不会改设备状态） | [TOOLS.md](TOOLS.md) |
 | 变更台账（按对象拆行） | 仓库根 [CHANGELOG.md](../CHANGELOG.md) |
 | **版本晋升规则**（三段式进位 / 有没有功能更新怎么判） | [VERSIONING.md](VERSIONING.md) §1–§2 |
 | **交付 / 发版规则**（版本号在哪维护 / 什么时候不动版本号 / 打 tag） | [VERSIONING.md](VERSIONING.md) §3、§5 + [release-notes/README.md](release-notes/README.md) |
@@ -116,7 +116,7 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 | 改脚本（`openwrt/` `mihomo/` `cdn/`） | [TOOLS.md](TOOLS.md) 的工具表、[ARCHITECTURE.md](ARCHITECTURE.md) 的「会改什么」、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
 | 新增/改了一个环境变量 | [../openwrt/conf/device.conf.example](../openwrt/conf/device.conf.example)、[SECRETS.md](SECRETS.md) 的变量表 |
 | 脚本报错文案或用法变了 | [PITFALLS.md](PITFALLS.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
-| 新增 / 删除 / 改名文件 | 仓库根 [README.md](../README.md) 的目录结构与文件清单表 |
+| 新增 / 删除 / 改名文件 | [TOOLS.md](TOOLS.md) 的目录结构与工具表 |
 | 新增 / 删除 / 改名文档 | [README.md](README.md) 索引（见 §7） |
 | 改了保留策略 / 清理规则 | [MAINTENANCE.md](MAINTENANCE.md) |
 | 改了凭据的存放位置或新增了凭据 | [SECRETS.md](SECRETS.md)（位置清单）；`.gitignore` 的排除项 |
@@ -145,5 +145,6 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 - **孤儿文档零容忍**：任何新文档必须至少被一处既有文档引用（或进索引并有明确入口），
   否则等于没写。
 - 仓库根的 [README.md](../README.md) 与 [docs/README.md](README.md) 是**两个层级**：
-  前者是门面（这是什么 / 怎么用），后者是 docs 内部的索引（每篇一句话定位）。
+  前者是门面（这是什么 / 环境要求 / 使用 / 反馈 / 免责声明 / 开源鸣谢 / 许可证），
+  后者是 docs 内部的索引（每篇一句话定位）。
   **两者都不承载正文规则。**
