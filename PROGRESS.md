@@ -52,3 +52,27 @@
 ## 状态: 已完成
 
 ---
+
+# 2026-10-21 README 门面统一（对齐 GSAuxiliary 七节）
+
+## 背景
+- 在「README 收敛批次」之后再收一轮：门面向读者是使用者，开发者内容下沉 `docs/`；
+  门面资源统一由 `assets/icon.svg` 渲染。
+
+## 已完成变更
+- [x] 根 `README.md` 收敛为七节门面（90 行）：这是什么 / 环境要求 / 使用 / 反馈 / 免责声明 / 开源鸣谢 / 许可证
+- [x] 三个域速查表与「设计原则」下沉 `docs/ARCHITECTURE.md` §1 / §1.1
+- [x] 新增 `tools/make_social_preview.py`（自带 SVG 渲染器，无第三方依赖），生成
+      `assets/logo.png` 与 `assets/social-preview.png`
+- [x] `docs/DOC-RULES.md` 正本映射表、`docs/MAINTENANCE.md` §3.8、`docs/README.md` 索引同步
+- [x] `tools/github-setup.py` 补 ZCodeTpsBadge / GSAuxiliary，描述改成面向使用者的口径
+- [x] CHANGELOG 增补「门面统一批次」
+
+## 自检
+- `python tools/check-docs.py` ✓（19 篇）
+- GitHub 侧：8 个仓的描述与话题已写入；5 个公开仓的社交预览图已上传并与仓内资产逐字节一致
+
+## 状态: 已完成
+
+---
+
