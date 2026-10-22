@@ -60,10 +60,6 @@ jobs:
       - name: 文档自检
         run: python3 tools/check-docs.py
 
-      # 凭据不该出现在仓里
-      - name: 明文凭据扫描
-        run: |
-          if grep -rInE 'oc_sk_[A-Za-z0-9]{6,}|password *= *"[^"]{4,}"|SECRET *= *"[0-9a-f]{16,}"' \
-               --exclude-dir=.git --exclude-dir=third-party . ; then
-            echo "发现疑似明文凭据，提交被拦下"; exit 1
-          fi
+      # 凭据与本机路径不该出现在仓里
+      - name: 敏感信息扫描
+        run: python3 tools/check-secrets.py
