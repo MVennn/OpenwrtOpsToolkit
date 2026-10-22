@@ -96,10 +96,28 @@ ROUTER_HEALTH_DIR=/etc/router-health
 # 探测地址（这个域必须在 rules 里固定指向 BULK_GROUP，否则探测不走本组）
 #BULK_PROBE_URL="https://proof.ovh.net/files/10Mb.dat"
 #BULK_PROBE_BYTES=4000000
+# 响应体小于这个字节数视为错误页，本次不判定
+#BULK_PROBE_MIN_BYTES=65536
 # 吞吐下限（bytes/sec，800000 ≈ 持续 10 Mbps；4MB 探测的实测值约为持续速率的 0.62 倍）
 #BULK_MIN_BPS=800000
-# 探测间隔与切回机场后的冷却（秒）
+# 探测间隔（秒）
 #BULK_PROBE_INTERVAL=7200
-#BULK_COOLDOWN=3600
+# 有活跃连接时的爬速下限与采样窗口（连续两个窗口都低于下限才动）
+#BULK_LIVE_MIN_BPS=200000
+#BULK_LIVE_SAMPLE_SEC=25
+# 每个下载会话最多在公共池内改试几个节点（切换会断流，所以有上限）
+#BULK_MAX_TRY=2
+# 节点吞吐缓存 TTL、切换后给下载重连的时间（秒）
+#BULK_SPEED_TTL=3600
+#BULK_SETTLE_SEC=20
+# 机场停留多久、连续空闲多久之后切回公共池（秒）
+#BULK_RETURN_COOLDOWN=600
+#BULK_IDLE_SWITCH=300
+# 状态、缓存、已试列表、锁与日志（都在 $RUNTIME_DIR，重启即清）
 #BULK_STATE=/tmp/ShellCrash/.bulk_guard_state
+#BULK_SPEED_STATE=/tmp/ShellCrash/.bulk_guard_speed
+#BULK_TRIED=/tmp/ShellCrash/.bulk_guard_tried
+#BULK_LOCK=/tmp/ShellCrash/.bulk_guard.lock
 #BULK_LOG=/tmp/ShellCrash/bulk-guard.log
+# 旧名，仍兼容；等价于 BULK_RETURN_COOLDOWN
+#BULK_COOLDOWN=600

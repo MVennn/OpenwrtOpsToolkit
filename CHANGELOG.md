@@ -9,6 +9,28 @@
 
 ## [未发布] — 2026-10-22
 
+### 大流量守卫按吞吐轮换（2026-10-22）
+
+- 重写 `openwrt/bulk-guard.sh` 的判定与恢复链路：
+  - 活跃连接改为按 connection id 求**正增量之和**，连接关闭不再把总和拉低
+    （Telegram 多连接重连会被旧逻辑误判成暂停）；第一个窗口慢、第二个 0 字节
+    按停滞处理，两个窗口都 0 才按暂停放过
+  - 探测跑满 40 秒超时但收到数据时按实测速率算慢，不再记「探测无效」——
+    实测 84.8 KB/s 的公共节点正好卡在这条路径上，老版本永远判不出来
+  - 确认为慢后先在公共池内按吞吐缓存改试，每会话最多 `BULK_MAX_TRY`（默认 2）个
+    活节点，再切机场；候选切换后给 `BULK_SETTLE_SEC` 重连，再采样真实速率
+  - 机场停留 `BULK_RETURN_COOLDOWN` 秒且空闲 `BULK_IDLE_SWITCH` 秒后回切公共池，
+    并钉住缓存里吞吐最好的节点
+  - 新增钉住节点健康检查：公共池被钉住后 URLTest 不再自动切换，每轮先确认它活着
+  - 新增实例锁（3 分钟 cron 下整轮可能压边）
+- 调整 部署 —— cron 从 `*/10` 改为 `*/3`
+- 调整 配置样例 —— 补 `BULK_MAX_TRY` / `BULK_SPEED_TTL` / `BULK_SETTLE_SEC` /
+  `BULK_IDLE_SWITCH` / `BULK_RETURN_COOLDOWN` / `BULK_PROBE_MIN_BYTES` /
+  `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK`
+- 调整 文档 —— `docs/ARCHITECTURE.md` §3.5 键表、§4.1 矩阵、§4.6 行为说明；
+  `docs/TOOLS.md` 工具表；`openwrt/README.md` 取舍说明；
+  `docs/MAINTENANCE.md` 阈值分类、保留策略、§3.8 回归项
+
 ### 收尾大扫除（2026-10-22）
 
 - 清理 工作区 —— 删 `__pycache__/`（`py_compile` 回归时生成的缓存，`.gitignore` 已覆盖）；

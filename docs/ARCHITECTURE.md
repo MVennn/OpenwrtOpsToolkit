@@ -162,9 +162,10 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | `MANUAL_GROUP` | ✅ | — | — | — | — | 留空 → 不顺着它解析真实出口 |
 | `AI_BAD_NODES` / `POOL_BLOCKED_NODES` | ✅ | — | — | — | — | 留空 → 不判「不可信出口」 |
 | `BULK_GROUP` / `BULK_PUBLIC` / `BULK_AIRPORT` | — | ✅ | — | — | — | 留空 → 整条守卫不启用 |
-| `BULK_PROBE_URL` / `BULK_PROBE_BYTES` / `BULK_MIN_BPS` | — | ✅ | — | — | — | 用内置默认值 |
-| `BULK_PROBE_INTERVAL` / `BULK_LIVE_MIN_BPS` / `BULK_LIVE_SAMPLE_SEC` / `BULK_COOLDOWN` | — | ✅ | — | — | — | 用内置默认值 |
-| `BULK_STATE` / `BULK_LOG` | — | ✅ | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
+| `BULK_PROBE_URL` / `BULK_PROBE_BYTES` / `BULK_MIN_BPS` / `BULK_PROBE_MIN_BYTES` | — | ✅ | — | — | — | 用内置默认值 |
+| `BULK_PROBE_INTERVAL` / `BULK_LIVE_MIN_BPS` / `BULK_LIVE_SAMPLE_SEC` | — | ✅ | — | — | — | 用内置默认值 |
+| `BULK_MAX_TRY` / `BULK_SPEED_TTL` / `BULK_SETTLE_SEC` / `BULK_IDLE_SWITCH` / `BULK_RETURN_COOLDOWN` | — | ✅ | — | — | — | 用内置默认值；`BULK_COOLDOWN` 是 `BULK_RETURN_COOLDOWN` 的旧名，仍兼容 |
+| `BULK_STATE` / `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK` / `BULK_LOG` | — | ✅ | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
 | `GUARDIAN_LOG` | ✅ | — | — | — | — | 用默认 `$RUNTIME_DIR/guardian.log` |
 | `RECOVER_LOG` | — | — | ✅ | — | — | 用默认 `/root/recover-last.log` |
 | `POST_SC_LOG` | — | — | — | — | ✅ | 用默认 `/root/post-sc-update.log` |
@@ -223,7 +224,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | 拉起代理核心 | ✅ §1 | — | ✅ §3 | — | ✅ §4 |
 | 停止 / 强杀核心 | ❌ | — | ✅ §3 | — | ❌ |
 | 重生成运行态配置 | ✅ §5 | — | ✅ §3 | — | ❌ |
-| **切换策略组**（PUT `/proxies`） | ✅ §2 / §2.1 / §2.2 / §3 / §3.5 / §3.6 | ✅ 只切 `BULK_GROUP` | ❌ | — | ❌ |
+| **切换策略组**（PUT `/proxies`） | ✅ §2 / §2.1 / §2.2 / §3 / §3.5 / §3.6 | ✅ 切 `BULK_GROUP`，并把 `BULK_PUBLIC` 钉到具体节点 | ❌ | — | ❌ |
 | 加载 nft 表 | ✅ §4 | — | ✅ §4 | ✅ | ❌ |
 | **删除 nft 表** | ❌ | — | ✅ §2（**仅 DNS 劫持表**） | ❌ | ❌ |
 | **重载防火墙**（fw4） | ❌ | — | ✅ §4.1 | ❌ | ❌ |
@@ -316,21 +317,33 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 **日志**：`$POST_SC_LOG`（默认 `/root/post-sc-update.log`），同样每次开头清空。
 
-### 4.6 `bulk-guard.sh` —— 只切大流量组
+### 4.6 `bulk-guard.sh` —— 管大流量组（切组 + 公共池选节点）
 
-`sh bulk-guard.sh`（正常执行，cron 用）、`--dry-run`（只报告）、`--status`（打印当前判定）。
+`sh bulk-guard.sh`（正常执行，cron 用，建议每 3 分钟）、`--dry-run`（只报告）、
+`--status`（打印当前判定、吞吐缓存与本会话已试节点）。
 
 1. **组空闲**：每 `BULK_PROBE_INTERVAL` 秒（默认 2 小时）下载 `BULK_PROBE_BYTES`
-   （默认 4MB），低于 `BULK_MIN_BPS`（默认 800 KB/s）→ `PUT /proxies/<BULK_GROUP>`
-   切到 `BULK_AIRPORT`，并冷却 `BULK_COOLDOWN` 秒。
-2. **组有连接且在传**：先判存活（5 秒内能否拿到 204），死了立刻切；活着则按
-   `/connections` 的累计字节采样，连续两个 `BULK_LIVE_SAMPLE_SEC` 窗口低于
-   `BULK_LIVE_MIN_BPS` 才切；0 字节窗口跳过（暂停 / 已传完）。
-3. **组在机场**：冷却结束且无活跃连接 → 切回 `BULK_PUBLIC` 并立即首测；
-   首测仍低于阈值就退回机场并重新冷却。
+   （默认 4MB）。跑满超时但收到了数据按实测速率算慢（不再判「探测无效」）；
+   `BULK_PROBE_MIN_BYTES`（默认 64KB）以下视为错误页，本次不判定。低于
+   `BULK_MIN_BPS`（默认 800 KB/s）→ `PUT /proxies/<BULK_GROUP>` 切到 `BULK_AIRPORT`，
+   并停留 `BULK_RETURN_COOLDOWN` 秒。
+2. **组有连接且在传**：先判组存活（5 秒内能否拿到 204），死了立刻切；活着则按
+   `/connections` 里**每条连接的 id** 求正增量之和，连续两个 `BULK_LIVE_SAMPLE_SEC`
+   窗口低于 `BULK_LIVE_MIN_BPS` 才动。第一个窗口慢、第二个窗口 0 字节按「停滞」；
+   两个窗口都 0 按「暂停」放过；下载在窗口内结束不判。
+3. **确认为慢**：先在 `BULK_PUBLIC` 内部按吞吐缓存从快到慢改试，每个下载会话最多
+   `BULK_MAX_TRY`（默认 2）个候选；每个候选给 `BULK_SETTLE_SEC` 重连，再采样
+   `BULK_LIVE_SAMPLE_SEC` 的真实速率。候选都跑不满（或没有候选）→ 切机场。
+4. **组在机场**：停留满 `BULK_RETURN_COOLDOWN` 且连续 `BULK_IDLE_SWITCH` 秒没有
+   「在传」的连接 → 切回 `BULK_PUBLIC`，并钉住缓存里吞吐最好的节点。
+5. **钉住节点的健康检查**：`BULK_PUBLIC` 被钉住后 URLTest 不再自动切换（控制 API
+   只能钉、不能解钉），所以每轮先测钉住的节点；不可达就换一个活的，全都不活就切机场。
+6. **切到机场后**：本会话不再回试公共池；机场也跑不满时不做额外动作 —— 那通常是
+   源站/上传方慢，来回切只会更糟。
 
-它只 `PUT` `BULK_GROUP` 这一个策略组；不拉起 / 停止核心、不改配置、不写 crontab。
-状态文件 `$BULK_STATE` 与日志 `$BULK_LOG` 都在 `$RUNTIME_DIR`（tmpfs，重启即清），
+它会 `PUT` `BULK_GROUP`，并把 `BULK_PUBLIC` 钉到具体节点；不拉起 / 停止核心、
+不改配置、不写 crontab。状态文件 `$BULK_STATE` / `$BULK_SPEED_STATE` / `$BULK_TRIED`、
+锁目录 `$BULK_LOCK` 与日志 `$BULK_LOG` 都在 `$RUNTIME_DIR`（tmpfs，重启即清），
 日志超过 200 KB 截成最后 60 行（与 `guardian.sh` 一致）。
 
 ### 4.7 明确不会做的事

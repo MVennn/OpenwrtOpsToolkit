@@ -39,7 +39,7 @@ OpenwrtOpsToolkit/
 | 文件 | 作用 | 会改设备状态吗 |
 |---|---|---|
 | `openwrt/guardian.sh` | 每 5 分钟巡检一次，必要时做最小化修复 | ⚠️ 会（但只做自愈动作） |
-| `openwrt/bulk-guard.sh` | 每 10 分钟判定一次大流量组走公共池还是机场；空闲时每 2 小时实测一次吞吐 | ⚠️ 会（只切策略组，不改配置） |
+| `openwrt/bulk-guard.sh` | 每 3 分钟判定一次大流量组走公共池还是机场；慢时先在公共池内按吞吐缓存改试（每会话最多 2 个），空闲时每 2 小时实测一次吞吐 | ⚠️ 会（切策略组，并把公共池钉到具体节点） |
 | `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
 | `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |
 | `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁 | ⚠️ 会（覆盖 starts/ 下三个文件） |
