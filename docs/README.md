@@ -45,7 +45,7 @@
 | 仓库根 [PROGRESS.md](../PROGRESS.md) | 本仓唯一进度台账（追加式批次日志） |
 | 仓库根 [NOTICE](../NOTICE) | 第三方声明：ShellCrash（GPL-3.0）、mihomo（MIT）、OpenWrt（GPL-2.0） |
 | 仓库根 [LICENSE](../LICENSE) | 许可证全文（**MIT**） |
-| [release-notes/](release-notes/README.md) | 面向使用者的 Release 说明，**文件名 = 版本号**（不带 `v` 前缀）；格式规范在它的 README。已发布：[0.1.0.md](release-notes/0.1.0.md) |
+| [release-notes/](release-notes/README.md) | 面向使用者的 Release 说明，**文件名 = 版本号**（不带 `v` 前缀）；格式规范在它的 README。已发布：[0.2.0.md](release-notes/0.2.0.md) / [0.1.0.md](release-notes/0.1.0.md) |
 | `../memories/` | 记忆文档：踩过的坑与实测结论（索引见 `../memories/MEMORY.md`） |
 
 ---
