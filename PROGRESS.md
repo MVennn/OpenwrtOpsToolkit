@@ -109,3 +109,22 @@
 ## 状态: 已完成
 
 ---
+
+# 2026-10-22 仓库门面：Issue 表单
+
+## 目标
+对齐 GSAuxiliary 的仓库门面：补上 Issue 表单，让反馈自带设备、版本、完整命令与输出。
+
+## 已完成变更
+- [x] 新增 `.github/ISSUE_TEMPLATE/bug_report.yml` —— 设备与固件、mihomo / ShellCrash 版本、
+      脚本与完整命令、输出原文、脱敏确认
+- [x] 新增 `.github/ISSUE_TEMPLATE/feature_request.yml` —— 场景、期望效果、范围确认
+- [x] 新增 `.github/ISSUE_TEMPLATE/config.yml` —— 关掉空白 Issue，挂排错手册与工具清单
+
+## 自检
+- `python tools/check-docs.py` ✓，退出码 0
+- 三份 YAML 均可被 `yaml.safe_load` 解析
+
+## 状态: 已完成
+
+---

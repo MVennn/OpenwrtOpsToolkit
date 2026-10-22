@@ -1,0 +1,88 @@
+name: 问题反馈（Bug）
+description: 守护或恢复脚本跑不通、诊断结论对不上、站点可达性判断异常
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量把下面的信息填全，尤其是**脚本与完整命令、输出原文**——
+        诊断类问题要把「实际结果」和「期望结果」写清楚，才判断得了是工具错了还是环境不同。
+
+        反馈前先查 [docs/TROUBLESHOOTING.md](https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/TROUBLESHOOTING.md)
+        与 [docs/PITFALLS.md](https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/PITFALLS.md)。
+
+  - type: checkboxes
+    id: acknowledgment
+    attributes:
+      label: 反馈前确认
+      options:
+        - label: 我已知悉 `openwrt/` 下的脚本会直接改设备状态（重启代理核心、复原策略组、重载 nft 表、恢复 crontab），已备份并先跑过 `--dry-run` / `--check`。
+          required: true
+        - label: 我已把日志与配置里的 secret、节点名、设备标识抹掉，替换成 `<REDACTED-...>`。
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 出了什么问题
+      description: |
+        现象 + 复现步骤：跑了哪个脚本、在哪个环节、预期结果与实际结果分别是什么。
+      placeholder: |
+        例：
+        1. 执行 openwrt/guardian.sh --dry-run
+        2. 脚本报「找不到策略组」
+        3. 预期：跳过自愈并提示配置缺失；实际：直接退出，没有结论
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备与固件版本
+      description: 在路由器上执行 `cat /etc/openwrt_release`，把 DESCRIPTION 与 VERSION 贴在这里
+      placeholder: "例：Xiaomi AX3000T / OpenWrt 25.12.6"
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: mihomo / ShellCrash 版本
+      description: mihomo 控制 API `/version` 与 ShellCrash 主界面都能看到
+      placeholder: "例：mihomo v1.19.32 / ShellCrash 1.9.x"
+    validations:
+      required: true
+
+  - type: input
+    id: script
+    attributes:
+      label: 涉及的脚本与完整命令
+      description: 带上环境变量名即可，不要贴 secret 的值
+      placeholder: "例：MIHOMO_API=http://127.0.0.1:9999 MIHOMO_SECRET=*** python3 mihomo/latency_probe.py"
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: 输出 / 报错原文
+      description: 把命令输出整段贴进来，不要只截一行；贴前先脱敏
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置（可选）
+      description: "`device.conf` 里相关的键名与取值（凭据用 `<REDACTED-...>`）、策略组名、nft 路径等"
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图或补充信息（可选）
+    validations:
+      required: false

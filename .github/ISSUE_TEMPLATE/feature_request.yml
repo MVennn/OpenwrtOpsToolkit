@@ -1,0 +1,50 @@
+name: 功能建议
+description: 想要新的诊断手法、设备侧守护项或恢复手段
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提建议前可以先翻翻已有的 Issue，并确认
+        [docs/TOOLS.md](https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/TOOLS.md)
+        与 [docs/ARCHITECTURE.md](https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/ARCHITECTURE.md)
+        里没有现成工具或明确不做的事项。
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 什么场景不顺手
+      description: |
+        先说场景再说想法——「设备出现什么现象，现在要手工查哪几步，哪一步最容易漏」。
+      placeholder: |
+        例：
+        代理用久了会静默变慢，现在只能分别看延迟和日志，
+        想要一个能连着看「组是否被改坏、nft 表是否还在、核心是否假死」的只读检查。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的效果（可选）
+      description: 希望新增诊断脚本、扩展现有参数，还是只补文档判据？
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 范围确认
+      options:
+        - label: 这个建议遵守「能只读就只读，要动手的只做最小化修复」，不删除防火墙链、不重启设备、不改订阅。
+          required: true
+        - label: 我知悉设备侧脚本需要真机验证，愿意在自己的设备上配合验证。
+          required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息（可选）
+      description: 相关命令、日志片段、设备型号等；敏感值先脱敏
+    validations:
+      required: false

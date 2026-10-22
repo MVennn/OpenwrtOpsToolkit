@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 排错手册
+    url: https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/TROUBLESHOOTING.md
+    about: 按现象查脚本、守护与诊断工具的常见问题。
+  - name: 工具清单
+    url: https://github.com/MVennn/OpenwrtOpsToolkit/blob/main/docs/TOOLS.md
+    about: 每个脚本干什么、会改设备哪些状态。
