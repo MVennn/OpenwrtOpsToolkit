@@ -6,7 +6,7 @@
 ## 目录结构
 
 ```
-openwrt-ops-toolkit/
+OpenwrtOpsToolkit/
 ├─ openwrt/
 │  ├─ guardian.sh            网络守护：出口组复原 / nft 表补载 / 探活
 │  ├─ bulk-guard.sh          大流量组守卫：按真实吞吐决定走公共池还是机场
@@ -29,6 +29,7 @@ openwrt-ops-toolkit/
 │  └─ quic_probe.py          QUIC 能力探测
 ├─ tools/check-docs.py       文档自检（链接 / 锚点 / 引言块 / 孤儿）
 ├─ tools/github-setup.py     批量配置 GitHub 仓库：可见性 / 描述 / 话题
+├─ tools/make_social_preview.py  从 assets/icon.svg 渲染 logo 与社交预览图
 ├─ docs/                     文档（README.md 是唯一索引）
 └─ assets/                   logo
 ```

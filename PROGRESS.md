@@ -128,3 +128,31 @@
 ## 状态: 已完成
 
 ---
+
+# 2026-10-22 收尾大扫除
+
+## 目标
+按 GoldSunEnhance 的《大扫除作业书》做减法与漂移对齐：清可再生产物、
+把文档里的脚本计数与键表对齐到实际脚本、补 Release 说明的反馈入口规则。
+
+## 已完成变更
+- [x] L1：删 `cdn/` `mihomo/` `tools/` 下的 `__pycache__/`（`py_compile` 生成的缓存，`.gitignore` 已覆盖）
+- [x] L3：设备侧脚本计数四 → 五（`openwrt/README.md`、`docs/ARCHITECTURE.md`、`docs/UPSTREAM.md`、
+      `docs/MAINTENANCE.md`）；`openwrt/README.md` 删掉重复的设计原则块
+- [x] L3：`docs/ARCHITECTURE.md` §3.5 键表 / §4.1 矩阵补 `bulk-guard.sh` 与 `BULK_*`，
+      新增 §4.6 行为说明；§5.4 切组脚本改为 `guardian.sh` / `bulk-guard.sh`
+- [x] L3：`docs/TOOLS.md` 目录树补 `tools/make_social_preview.py`，根目录名改为实际仓名
+- [x] L3：`docs/release-notes/README.md` 补「反馈入口」规则（第二行、绝对地址、已发布正文不回填）；
+      修掉「尚未上传远端，也未 git init」的过期说法
+- [x] L4：`docs/MAINTENANCE.md` 补 `BULK_*` 默认值分类、大流量守卫日志 / 状态保留行、
+      §3.8 回归清单、§7 维护记录
+- [x] 记账：CHANGELOG 增「收尾大扫除」段
+
+## 自检
+- `python tools/check-docs.py` ✓（19 篇，退出码 0）
+- 全部 `.sh` 过 `bash -n` ✓；全部 `.py` 过 `python -m py_compile` ✓
+- 删 `__pycache__`（约 208 KB）后仓体积 1.5M（开工 1.4M；净增来自本轮文档修改）
+
+## 状态: 已完成
+
+---

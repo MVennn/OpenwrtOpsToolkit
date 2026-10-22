@@ -20,7 +20,7 @@
 | **MetaCubeX meta-rules-dat** | https://github.com/MetaCubeX/meta-rules-dat | GPL-3.0 | geosite / geoip 分类数据集 | ❌ **只引用来源地址，不分发数据** |
 | **nftables** | https://nftables.org | GPL-2.0（内核侧） | 自建 nft 表的语法与语义 | ❌ 不分发 |
 
-**本仓自己的代码**（四个 shell 脚本 + 六个 Python 脚本 + 文档）
+**本仓自己的代码**（五个 shell 脚本 + 六个 Python 脚本 + 文档）
 **全部是原创的**，按 [LICENSE](../LICENSE) 的 **MIT** 发布。
 
 > ⚠️ **许可证一栏要跟着上游复核**。上表是本仓建仓时（2026-10-20）的判断；
@@ -88,7 +88,7 @@ PATCH_SPEC 格式：  <相对 CRASHDIR 的路径>=<标记1>,<标记2>
 
 | 不是派生件 | 原因 |
 |---|---|
-| `openwrt/guardian.sh` 等四个 shell 脚本 | **从零写的**，只用 ShellCrash 的**接口**（路径、命令、子命令名） |
+| `openwrt/guardian.sh` 等五个 shell 脚本 | **从零写的**，只用 ShellCrash 的**接口**（路径、命令、子命令名） |
 | `mihomo/` 六个 Python 脚本 | 从零写的，只对着 mihomo 的**HTTP 接口**说话 |
 | `openwrt/conf/device.conf.example` | 纯配置样例 |
 | 文档 | 原创 |
@@ -114,7 +114,7 @@ PATCH_SPEC 格式：  <相对 CRASHDIR 的路径>=<标记1>,<标记2>
 
 1. **复制上游代码段 = 变成派生件**。
    本仓任何文件都不许「抄一段 ShellCrash 的 shell 再改」而不标注来源与许可证。
-   —— 现状是四个设备侧脚本全部从零写，只用接口。
+   —— 现状是五个设备侧脚本全部从零写，只用接口。
 2. **派生件必须保留上游版权头**。
    被补丁的 `starts/` 脚本**保留上游原有的 `Copyright` 行与 GPL-3.0 声明**，
    本地改动以注释标出（`# 本地补丁：…`）。

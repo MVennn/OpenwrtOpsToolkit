@@ -44,10 +44,10 @@
 |---|---|---|
 | 路径类（`CRASHDIR` `NFT_DIR` `RUNTIME_DIR` `*_LOG` …） | 一个**通用**路径（如 `/etc/ShellCrash`、`/etc`、`/tmp/ShellCrash`） | 用默认值，通常仍能跑 |
 | 端口类（`CTRL_PORT` `PROXY_PORT` `MIXED_PORT` `DNS_PORT`） | 通用端口（`9999` / `7890` / `7892` / `1053`） | 用默认值 |
-| **组名 / 节点名**（`AI_GROUP` `CLEAN_GROUP` `CLEAN_NODE` `CL_CANDIDATES` `POOL_GROUP` `POOL_FALLBACK_GROUP` `MANUAL_GROUP`） | **空** | **对应自愈动作整条跳过** |
+| **组名 / 节点名**（`AI_GROUP` `CLEAN_GROUP` `CLEAN_NODE` `CL_CANDIDATES` `POOL_GROUP` `POOL_FALLBACK_GROUP` `MANUAL_GROUP` `BULK_GROUP` `BULK_PUBLIC` `BULK_AIRPORT`） | **空** | **对应自愈动作整条跳过**（`BULK_*` 三个缺一个，整条守卫不启用） |
 | **坏节点通配**（`AI_BAD_NODES` `POOL_BLOCKED_NODES`） | **空** | 不判「不可信出口」，永不自动复位 |
-| 探测地址（`PROBE_URL` `CLEAN_PROBE_URL` `CC_PROBE_URL`） | 公开、无需鉴权的地址 | 用默认值 |
-| 阈值（`EXIT_MAX_SEC` `CLEAN_EXIT_MAX_SEC` `MEM_LOW_MB` `TMPFS_WARN_PCT` `FALLBACK_HEAL_INTERVAL` `ALIVE_STALE_SEC`） | 一个保守的数值（`3` / `4` / `30` / `80` / `1800` / `1800`） | 用默认值 |
+| 探测地址（`PROBE_URL` `CLEAN_PROBE_URL` `CC_PROBE_URL` `BULK_PROBE_URL`） | 公开、无需鉴权的地址 | 用默认值 |
+| 阈值（`EXIT_MAX_SEC` `CLEAN_EXIT_MAX_SEC` `MEM_LOW_MB` `TMPFS_WARN_PCT` `FALLBACK_HEAL_INTERVAL` `ALIVE_STALE_SEC` `BULK_PROBE_BYTES` `BULK_MIN_BPS` `BULK_PROBE_INTERVAL` `BULK_LIVE_MIN_BPS` `BULK_LIVE_SAMPLE_SEC` `BULK_COOLDOWN`） | 一个保守的数值（`3` / `4` / `30` / `80` / `1800` / `1800` / `4000000` / `800000` / `7200` / `200000` / `30` / `3600`） | 用默认值 |
 | 目录清单类（`NFT_TABLES` `NFT_DNS_TABLES` `VAR_RUNTIME_DIRS`） | 通用表名 / 通用目录清单 | 用默认值（注意 `NFT_TABLES` 在**三个脚本里默认值不同**） |
 | 补丁相关（`PATCH_DIR` / `PATCH_SPEC`） | `$CRASHDIR/local-patches` / **空** | **无补丁可恢复** |
 | 校验用（`CHECK_GROUP` `CC_EXPECT`） | **空** | 跳过该项校验 |
@@ -92,7 +92,7 @@ sh openwrt/guardian.sh --dry-run
 
 - 在 `device.conf` 里配了一个键，但**对应脚本不读它** ⇒ **静默无效**：
   配了不报错、也不生效。
-- 这不是 bug，是「**一个配置文件服务四个脚本**」的必然结果。
+- 这不是 bug，是「**一个配置文件服务五个脚本**」的必然结果。
 - 典型形态：某个键在 A 脚本里是**路径类默认值**、在 B 脚本里是**空**——
   同一行配置对两个脚本的含义完全不同。
 - 还有一类是**声明了但没被任何逻辑读取**的键（历史遗留的开关），
@@ -111,6 +111,8 @@ sh openwrt/guardian.sh --dry-run
 | 产物 | 落点 | 介质 | 重启会丢吗 | 会自动清吗 |
 |---|---|---|---|---|
 | 守护日志 | `$GUARDIAN_LOG`（默认 `/tmp/ShellCrash/guardian.log`） | tmpfs | ✅ 丢 | 超过 200 KB 截成**最后 60 行** |
+| 大流量守卫日志 | `$BULK_LOG`（默认 `/tmp/ShellCrash/bulk-guard.log`） | tmpfs | ✅ 丢 | 超过 200 KB 截成**最后 60 行** |
+| 大流量守卫状态 | `$BULK_STATE`（默认 `/tmp/ShellCrash/.bulk_guard_state`） | tmpfs | ✅ 丢 | ❌（只存冷却截止与上次探测时间） |
 | 离线恢复日志 | `$RECOVER_LOG`（默认 `/root/recover-last.log`） | overlay | ❌ 留 | ✅ **每次运行开头清空**（只留最后一次） |
 | 补丁恢复日志 | `$POST_SC_LOG`（默认 `/root/post-sc-update.log`） | overlay | ❌ 留 | ✅ 每次运行开头清空 |
 | 过滤文件备份 | `$CRASHDIR/configs/fake_ip_filter.bak.<时间戳>` | overlay | ❌ 留 | ❌ **不会自动清**（会累积） |
@@ -240,7 +242,20 @@ sh openwrt/guardian.sh --dry-run
 | D4 | **`quic_probe.py` 对照站点** | 清单里国内与国外各一个对照站，结论不同才说明是链路问题 |
 | D5 | **`qq_cdn_probe.py` 三段可分辨** | `dns` / `probe` / `all` 各自输出正确 |
 
-### 3.8 改完还要连带改的
+### 3.8 改了 `openwrt/bulk-guard.sh`
+
+| # | 回归项 | 怎么验 |
+|---|---|---|
+| B1 | **`--dry-run` 不发 `PUT`** | 日志出现 `DRY-RUN: 将把…切到…`；控制 API 侧无切组。注意：它仍会写日志与状态文件，并做真实探测下载 |
+| B2 | **组名缺一不动作** | 只配 `BULK_GROUP` → `WARN: 未配置 …` 并 `exit 0`，不发任何 `PUT` |
+| B3 | **探测无效不误判** | 探测响应码非 `200/206` 或字节数不足 90% → 记 `探测无效`，本次不切组 |
+| B4 | **活跃连接按两窗口判定** | 连续两个 `BULK_LIVE_SAMPLE_SEC` 都低于 `BULK_LIVE_MIN_BPS` 才切；0 字节窗口必须跳过 |
+| B5 | **冷却与切回** | 在机场且超过 `BULK_COOLDOWN`、无活跃连接才切回公共池；首测无效不回退，首测低则退回并重新冷却 |
+| B6 | **日志自限容** | 日志超 200 KB 后只剩最后 60 行 |
+| B7 | **探测域走本组** | `rules` 里探测域（默认 `proof.ovh.net`）固定指向 `BULK_GROUP`，否则测的是默认出口 |
+| B8 | **`--status` 只打印** | 不 `PUT`、不探测，只输出当前组、阈值、冷却截止与上次探测时间 |
+
+### 3.9 改完还要连带改的
 
 按 [DOC-RULES.md](DOC-RULES.md) §5 的**变更触发矩阵**：
 
@@ -376,3 +391,11 @@ CI（`.github/workflows/ci.yml`）跑的就是这几样，外加一条明文凭�
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) —— 改完怎么验证行为。
 - [UPSTREAM.md](UPSTREAM.md) —— 上游与派生边界。
 - [SECRETS.md](SECRETS.md) —— 凭据位置索引。
+
+---
+
+## 7. 维护记录
+
+| 日期 | 做了什么 | 结果 |
+|---|---|---|
+| 2026-10-22 | 收尾大扫除：清 `__pycache__`；脚本计数四 → 五；补 `bulk-guard.sh` 的键表 / 会改什么 / 回归项；`docs/TOOLS.md` 补 `tools/make_social_preview.py`；`docs/release-notes/README.md` 补「反馈入口」规则 | 见 CHANGELOG / PROGRESS 同名批次 |

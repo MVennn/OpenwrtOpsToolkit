@@ -9,6 +9,22 @@
 
 ## [未发布] — 2026-10-22
 
+### 收尾大扫除（2026-10-22）
+
+- 清理 工作区 —— 删 `__pycache__/`（`py_compile` 回归时生成的缓存，`.gitignore` 已覆盖）；
+  仓内无日志 / 备份 / 临时产物，`.work/` 为空（0 字节）
+- 调整 文档 —— 设备侧脚本计数四 → 五（`openwrt/README.md`、`docs/ARCHITECTURE.md`、
+  `docs/UPSTREAM.md`、`docs/MAINTENANCE.md`）；`openwrt/README.md` 删掉重复的设计原则块
+- 调整 文档 —— `docs/ARCHITECTURE.md` §3.5 键表与 §4.1 矩阵补 `bulk-guard.sh` 列与
+  `BULK_*` 键，新增 §4.6 行为说明；§5.4 注明切组脚本有两个
+- 调整 文档 —— `docs/TOOLS.md` 目录树补 `tools/make_social_preview.py`，根目录名改为实际仓名
+- 调整 文档 —— `docs/release-notes/README.md` 补「反馈入口」规则（第二行、绝对地址
+  `.../issues/new/choose`、已发布正文不回填），并修掉「尚未上传远端，也未 git init」的过期说法
+- 调整 文档 —— `docs/MAINTENANCE.md` 补 `BULK_*` 默认值分类、大流量守卫日志 / 状态保留行、
+  §3.8 回归清单与 §7 维护记录
+- 体积 —— 开工 1.4M → 收尾 1.5M（中途 `py_compile` 生成的约 208 KB `__pycache__` 已删；
+  净增来自本轮文档修改）；`git ls-files` 合计约 512 KB
+
 ### Issue 表单（2026-10-22）
 
 - 新增 `.github/ISSUE_TEMPLATE/` —— 问题反馈（Bug）与功能建议两套表单，外加 `config.yml`：
