@@ -11,9 +11,9 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 
 | 类别 | 收什么 | 现有成员 |
 |---|---|---|
-| 架构与逆向 | 三个域各解决什么、脚本会改设备什么、配置怎么读 | ARCHITECTURE、UPSTREAM |
-| 功能专项 | 一个主题一篇 | PITFALLS、TROUBLESHOOTING |
-| 流程与规范 | 构建、发版、版本、维护、排错、命名、编码纪律、文档规则 | VERSIONING、MAINTENANCE、SECRETS、DOC-RULES、release-notes/ |
+| 架构与机制 | 三个域各解决什么、脚本会改设备什么、配置怎么读、上游边界 | ARCHITECTURE、UPSTREAM |
+| 工具专项 | 一个工具域一篇 | TOOLS、PITFALLS、TROUBLESHOOTING、`openwrt/README.md` |
+| 流程与规范 | 发版、版本、维护、凭据位置、文档规则 | VERSIONING、MAINTENANCE、SECRETS、DOC-RULES |
 | 参考资料 | Release 说明、记忆文档、仓库根文档 | release-notes/、memories/、CHANGELOG、NOTICE、LICENSE |
 
 每篇文档开头必须有一个 **「一句话」引言块**（`> **一句话**：…`），
@@ -21,6 +21,18 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 
 **例外**：`evidence/` 下的**原始证据**与**归档报告**（`docs/archive/`）是**只读原始数据**，
 不为它们补引言块 —— 补了就改动了原始记录。它们的定位由本索引承担。
+
+### 文件命名：全大写 + 连字符
+
+`docs/` 下的 `.md` 一律 **全大写 + 连字符**（`MAINTENANCE.md`、`DOC-RULES.md`），
+与系列仓（基准仓 GoldSunEnhance）一致 —— 跨仓找同名文档时不用来回猜大小写。
+
+- 改名用 `git mv`（保住重命名识别），然后**全仓 grep 旧文件名**把所有引用改掉 ——
+  含 `CHANGELOG.md` / `PROGRESS.md` / `AGENTS.md` 里的历史条目指向**现役文档**的链接；
+  纯历史记录里的旧文件名可以保留原样（那是当时的事实）。
+- 改完跑 `python tools/check-docs.py`：断链、锚点漂移、缺引言块、孤儿文档一次查全。
+- 例外：`docs/release-notes/` 下的文件名是**版本号本身**（`0.1.0.md`），不带 `v` ——
+  `v` 前缀只属于发版 tag。规则正本见 [VERSIONING.md](VERSIONING.md)。
 
 ---
 
@@ -118,11 +130,12 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 | 脚本报错文案或用法变了 | [PITFALLS.md](PITFALLS.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
 | 新增 / 删除 / 改名文件 | [TOOLS.md](TOOLS.md) 的目录结构与工具表 |
 | 新增 / 删除 / 改名文档 | [README.md](README.md) 索引（见 §7） |
+| 改了脚本的行为 / 调用方式 / 目标路径（**破坏性变更**） | [VERSIONING.md](VERSIONING.md) §1 第三行：进次版本 + [CHANGELOG.md](../CHANGELOG.md) 段落里**显式标注**；Release 说明的「注意」区块写清「怎么迁」（见 [release-notes/README.md](release-notes/README.md)） |
 | 改了保留策略 / 清理规则 | [MAINTENANCE.md](MAINTENANCE.md) |
 | 改了凭据的存放位置或新增了凭据 | [SECRETS.md](SECRETS.md)（位置清单）；`.gitignore` 的排除项 |
 | 改了版本晋升 / 发版规则 | [VERSIONING.md](VERSIONING.md)；仓库根 [CHANGELOG.md](../CHANGELOG.md)（版本号本身） |
 | 改了许可证 | 仓库根 [LICENSE](../LICENSE)、[NOTICE](../NOTICE)、[README.md](../README.md) 的许可证段 |
-| 发版 | 仓库根 [CHANGELOG.md](../CHANGELOG.md)、[docs/release-notes/](release-notes/) 下对应版本说明（格式正本：[release-notes/README.md](release-notes/README.md)；版本号进位规则：[VERSIONING.md](VERSIONING.md)） |
+| 发版 | 仓库根 [CHANGELOG.md](../CHANGELOG.md)、[docs/release-notes/](release-notes/) 下对应版本说明（文件名 = 版本号、**不带 `v` 前缀**，格式正本：[release-notes/README.md](release-notes/README.md)；进位规则：[VERSIONING.md](VERSIONING.md)） |
 | 内部重构 / 底层修复 / 死代码 | CHANGELOG 与 Release 说明里**必须按对象单列一行**（算「修复」，不许打包成「代码整理」） |
 
 ---
@@ -134,6 +147,9 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 - **样例时效**：带日期标注的样例（如「2026-10-20 实测」）可容忍过时 ——
   它们是历史记录；但**当前值类内容**（overlay 占用率、当前出口、当前策略组）
   必须随实际变化同步，不允许停留在旧状态。
+- **清单与计数类内容不算「样例」**：[TOOLS.md](TOOLS.md) 的目录结构、工具表、
+  脚本计数，[SECRETS.md](SECRETS.md) 的凭据位置清单 —— 这些是**现役事实**，
+  文件一变就得跟着改，不许等下个版本一起清（对应 §5 的变更触发矩阵）。
 - **阶段性报告不改写**：这类报告是「当时发生了什么」的定稿，
   结论过时了就在**文末追加勘误节**（`## 勘误（日期 复核）`），不动正文。
 

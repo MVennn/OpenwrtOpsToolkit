@@ -339,7 +339,7 @@ sh openwrt/guardian.sh --dry-run
 | 位置 | 内容 |
 |---|---|
 | 仓库根 [CHANGELOG.md](../CHANGELOG.md) | **版本号本身**只在这里维护（段标题形如 `## [0.1.0] — 2026-10-20`） |
-| `docs/release-notes/<版本>.md` | 面向使用者的 Release 说明，**文件名 = 版本号** |
+| `docs/release-notes/<版本>.md` | 面向使用者的 Release 说明，**文件名 = 版本号**（`0.1.0` 形式，**不带 `v` 前缀**） |
 | 发版 tag | `v<版本>` 形式，tag 名 = 版本号 |
 
 ### 5.2 步骤

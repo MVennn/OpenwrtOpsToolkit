@@ -1,12 +1,13 @@
 # release-notes/
 
-放**面向使用者**的 Release 说明，文件名 = 版本号：
+放**面向使用者**的 Release 说明，**文件名 = 版本号本身**（如 `0.1.0`），**不带 `v` 前缀** ——
+`v` 前缀只属于发版 tag：
 
 ```
-docs/release-notes/v0.1.0.md
+docs/release-notes/0.1.0.md
 ```
 
-版本号与 [CHANGELOG.md](../../CHANGELOG.md) 头部一致；打 tag 时把 CHANGELOG 的
+版本号与 [CHANGELOG.md](../../CHANGELOG.md) 的段标题一致；打 tag 时把 CHANGELOG 的
 `## [未发布]` 段改成 `## [版本号] — <日期>`，并把本目录下的同名文件作为 Release 说明。
 
 ## 为什么要单独放一份
