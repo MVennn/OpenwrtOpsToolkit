@@ -84,3 +84,22 @@ ROUTER_HEALTH_DIR=/etc/router-health
 
 # /tmp 水位过高时要清的临时文件（空格分隔）
 #TMPFS_CLEAN_FILES="/tmp/pre-reboot-config.tar.gz /tmp/mihomo-new /tmp/mihomo-arm64.gz"
+
+# ---------------------------------------------------------------------------
+# bulk-guard.sh：大流量组（公共池承载大文件下载，跑不满切回机场）
+# 三个组名都填了才会启用；留空 = 跳过
+# ---------------------------------------------------------------------------
+#BULK_GROUP="大流量"
+#BULK_PUBLIC="公共备用"
+#BULK_AIRPORT="自动选择"
+
+# 探测地址（这个域必须在 rules 里固定指向 BULK_GROUP，否则探测不走本组）
+#BULK_PROBE_URL="https://proof.ovh.net/files/10Mb.dat"
+#BULK_PROBE_BYTES=4000000
+# 吞吐下限（bytes/sec，800000 ≈ 持续 10 Mbps；4MB 探测的实测值约为持续速率的 0.62 倍）
+#BULK_MIN_BPS=800000
+# 探测间隔与切回机场后的冷却（秒）
+#BULK_PROBE_INTERVAL=7200
+#BULK_COOLDOWN=3600
+#BULK_STATE=/tmp/ShellCrash/.bulk_guard_state
+#BULK_LOG=/tmp/ShellCrash/bulk-guard.log

@@ -6,16 +6,29 @@
 
 ---
 
-## 1. 这四个脚本
+## 1. 这五个脚本
 
 | 文件 | 干什么 | 典型调用 |
 |---|---|---|
 | `guardian.sh` | 网络守护：核心存活、nft 表补载、策略组出口复原、出口健康、`/tmp` 水位 | cron `*/5 * * * *`（试跑加 `--dry-run`） |
+| `bulk-guard.sh` | 大流量组守卫：按**真实吞吐**决定走公共池还是机场（mihomo 的 `url-test`/`fallback` 只测首包，不测带宽） | cron `*/10 * * * *`（`--status` 看当前判定，`--dry-run` 只报告） |
 | `recover-now.sh` | 离线恢复：DNS 解析全失败 / 代理离线 / 「连上 WiFi 但没网」 | 人工，或 Windows 侧推过去跑 |
 | `rc.local` | 开机自启**模板**：建 tmpfs 运行时目录、兜底重建 `/var`、按需加载 nft 表 | 覆盖 `/etc/rc.local` |
 | `post-sc-update.sh` | ShellCrash 官方脚本更新后，把本地补丁恢复回来 + 补 cron + 启动 + 验收 | 每次更新完跑一次 |
 
-设计原则（四个脚本一致）：
+设计原则（五个脚本一致）：
+
+1. **只检测 + 最小化修复**，绝不删防火墙链、绝不重启路由器、绝不改订阅；
+2. 每种修复都**幂等**，跑第二遍不会把设备搞坏；
+3. 关键动作失败**显式报错**（写日志 + `logger`），不静默吞掉；
+4. **设备相关的值全部外置**到配置，脚本本身可以直接公开。
+
+`bulk-guard.sh` 额外有两条刻意的保守设计：**空闲时才用探测下载决定切组**
+（切组会重置 TCP，正在跑的下载必断）；**有活跃连接时改用 `/connections` 的累计字节
+采样真实速率** —— 连续两个 30s 窗口都低于 200 KB/s 才切，0 字节的窗口跳过
+（暂停 / 已传完但连接未关）。探测文件用 4MB ——
+同一公共节点实测 2MB 1.19、4MB 1.65、8MB 2.07、20MB 2.67 MB/s：
+小样本会被 TCP 慢启动 + 300–500ms RTT 低估约一倍，用它定阈值会把好节点误判成坏节点。
 
 1. **只检测 + 最小化修复**，绝不删防火墙链、绝不重启路由器、绝不改订阅；
 2. 每种修复都**幂等**，跑第二遍不会把设备搞坏；
@@ -74,15 +87,23 @@ sh openwrt/post-sc-update.sh check    # 只检查，不恢复
 # 1) 脚本与配置
 scp -r openwrt/conf root@<路由器>:/etc/openwrt-ops/    # 配置
 scp openwrt/guardian.sh root@<路由器>:/etc/ShellCrash/guardian.sh
-ssh root@<路由器> 'chmod +x /etc/ShellCrash/guardian.sh'
+scp openwrt/bulk-guard.sh root@<路由器>:/etc/ShellCrash/bulk-guard.sh
+ssh root@<路由器> 'chmod +x /etc/ShellCrash/guardian.sh /etc/ShellCrash/bulk-guard.sh'
 
-# 2) 挂 cron（每 5 分钟）
-ssh root@<路由器> 'echo "*/5 * * * * /bin/ash /etc/ShellCrash/guardian.sh" >> /etc/crontabs/root && /etc/init.d/cron restart'
+# 2) 挂 cron（守护每 5 分钟；大流量守卫每 10 分钟）
+ssh root@<路由器> 'echo "*/5 * * * * /bin/ash /etc/ShellCrash/guardian.sh" >> /etc/crontabs/root'
+ssh root@<路由器> 'echo "*/10 * * * * /bin/ash /etc/ShellCrash/bulk-guard.sh" >> /etc/crontabs/root'
+ssh root@<路由器> '/etc/init.d/cron restart'
 
 # 3) 开机自启：先备份再覆盖
 ssh root@<路由器> 'cp /etc/rc.local /root/backup/rc.local.bak-$(date +%Y%m%d-%H%M%S)'
 scp openwrt/rc.local root@<路由器>:/etc/rc.local
 ```
+
+> `bulk-guard.sh` 要生效，还需要两件设备侧的事：`device.conf` 里填
+> `BULK_GROUP` / `BULK_PUBLIC` / `BULK_AIRPORT`；`rules` 里把探测域
+> （默认 `proof.ovh.net`）固定指向 `BULK_GROUP`，否则探测会走默认出口，
+> 测的是别的组。
 
 > `rc.local` 是**模板** —— 直接覆盖前先把自己的 `device.conf` 配好，
 > 否则它会用内置默认路径去加载 nft 表。

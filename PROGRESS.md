@@ -76,3 +76,36 @@
 
 ---
 
+
+# 2026-10-22 大流量守卫（bulk-guard.sh）
+
+## 背景
+- 公共备用节点只做「机场全挂」的兜底，不承载大流量；想让已知的大文件下载
+  走公共池省机场流量，跑不满时自动切回机场。
+- 先验证了 mihomo 原生做不到：`url-test` / `fallback` 只测首包
+  （`/proxies/<节点>/delay` 请求 3MB 只花 233ms，正文没传）。
+
+## 已完成变更
+- [x] 新增 `openwrt/bulk-guard.sh`（配置驱动：`BULK_GROUP` / `BULK_PUBLIC` / `BULK_AIRPORT`）
+- [x] 活跃连接爬速判定：`/connections` 累计字节采样，连续 2×30s 低于 200 KB/s 才切；
+      0 字节窗口跳过（暂停 / 已传完）
+- [x] `openwrt/conf/device.conf.example` 补 `BULK_*` 配置项
+- [x] `openwrt/README.md`：四个脚本 → 五个，补部署 cron 与保守设计说明
+- [x] `docs/TOOLS.md`：目录树 + 会改设备状态表
+- [x] CHANGELOG 增补「大流量守卫批次」
+
+## 真机验证（AX3000T）
+- [x] 探测文件大小校准：同一公共节点 2MB 1.19 / 4MB 1.65 / 8MB 2.07 / 20MB 2.67 MB/s
+      → 选 4MB + 阈值 800 KB/s（≈ 持续 10 Mbps）
+- [x] 链路验证：`proof.ovh.net` → `📺 大流量` → `🆓 公共备用` → 公共节点（`/connections` 的 chains 实测）
+- [x] 探测源换过一次：Cloudflare `__down` 在公共节点上被限流成 403（403 的「速度」会误判成节点慢），
+      改用 OVH 测速文件 + `Range: 0-3999999`；探测函数校验 `200/206` 与字节数，无效时返回 -1、不切组
+- [x] 状态机验证：公共池低于阈值 → 切机场 + 冷却；冷却结束且空闲 → 切回公共池 + 首测
+- [x] cron `*/10 * * * *` 已挂；组名从 `/etc/openwrt-ops/device.conf` 读取
+
+## 自检
+- `sh -n openwrt/bulk-guard.sh` ✓
+
+## 状态: 已完成
+
+---
