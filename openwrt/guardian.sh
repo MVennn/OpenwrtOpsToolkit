@@ -269,7 +269,9 @@ if [ -n "$POOL_GROUP" ] && [ -n "$POOL_FALLBACK_GROUP" ]; then
   T1=$($CURL -s -m 12 -o /dev/null -w "%{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
   T2=$($CURL -s -m 12 -o /dev/null -w "%{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
   if [ -n "$T1" ] && [ -n "$T2" ]; then
-    MS=$(echo "$T1 $T2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t/2}')
+    # 两次探测取较慢那次（ARCHITECTURE §3.5）。$1/$2 是同一行的两个字段，
+    # 取 max 后不能再除 2 —— 除 2 会把劣化阈值整体压低一半。
+    MS=$(echo "$T1 $T2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t}')
     if ge_sec "$MS" "$EXIT_MAX_SEC"; then
       if [ "$(put "$POOL_GROUP" "$POOL_FALLBACK_GROUP")" = "204" ]; then
         log "FIX: 通用出口耗时 ${MS}s（>${EXIT_MAX_SEC}s，疑似节点劣化），复位为「$POOL_FALLBACK_GROUP」"
@@ -287,7 +289,7 @@ clean_exit_ms() {
   C1=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
   C2=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
   [ -z "$C1" ] && [ -z "$C2" ] && { echo "99"; return; }
-  echo "$C1 $C2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t/2}'
+  echo "$C1 $C2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t}'
 }
 clean_exit_bad() {
   MS=$(clean_exit_ms)
@@ -340,7 +342,7 @@ done
 
 # ---------- 5) 静默回退自愈 ----------
 # 配置校验失败时 ShellCrash 只打一行日志就回退基础配置，自定义组与规则全丢。
-if [ -n "$AI_FALLBACK_GROUP" ] && ! grep -q "name: $AI_FALLBACK_GROUP" "$RUNTIME_DIR/config.yaml" 2>/dev/null; then
+if [ -n "$AI_FALLBACK_GROUP" ] && ! grep -Fq "name: $AI_FALLBACK_GROUP" "$RUNTIME_DIR/config.yaml" 2>/dev/null; then
   LASTF="$RUNTIME_DIR/.last_fallback_heal"
   NOWT=$(date +%s)
   PREV=$(cat "$LASTF" 2>/dev/null || echo 0)

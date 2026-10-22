@@ -39,36 +39,73 @@ def _split_env(name, default):
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def _encode_qname(host):
+    """域名按 DNS wire format 编码：每段前加长度字节，末尾 0。
+
+    把整串域名当成一个标签（前面只加总长度）在协议上是非法的 ——
+    标签内不允许 '.'，多数递归服务器会直接回 NXDOMAIN。
+    """
+    out = b""
+    for label in host.rstrip(".").split("."):
+        raw = label.encode("idna")
+        if not raw or len(raw) > 63:
+            raise ValueError("invalid label")
+        out += bytes([len(raw)]) + raw
+    return out + b"\x00"
+
+
 def resolve(host, server=None, timeout=4.0):
     """用指定 DNS 服务器解析，返回 IPv4 列表。"""
-    q = bytes([len(host)] + [ord(c) for c in host]) + b"\x00"
+    try:
+        q = _encode_qname(host)
+    except Exception as e:
+        return ["ERR:" + type(e).__name__]
     pkt = b"\xab\xcd\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + q + b"\x00\x01\x00\x01"
     out = []
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
-        s.sendto(pkt, (server, 53))
-        data, _ = s.recvfrom(2048)
+        try:
+            s.sendto(pkt, (server, 53))
+            data, _ = s.recvfrom(2048)
+        finally:
+            s.close()
+        if len(data) < 12:
+            return ["NODATA"]
         ancount = int.from_bytes(data[6:8], "big")
         i = 12
-        while i < len(data) and data[i] != 0:
-            i += 1 + data[i]
-        i += 1 + 4  # qname 结束 + QTYPE(2) + QCLASS(2)
+        # 跳过 question 段：按标签长度走，兼容压缩指针
+        while i < len(data):
+            n = data[i]
+            if n == 0:
+                i += 1
+                break
+            if (n & 0xC0) == 0xC0:
+                i += 2
+                break
+            i += 1 + n
+        i += 4  # QTYPE + QCLASS
         for _ in range(ancount):
-            if data[i] & 0xC0 == 0xC0:
+            if i >= len(data):
+                break
+            n = data[i]
+            if (n & 0xC0) == 0xC0:
                 i += 2
             else:
-                while data[i] != 0:
+                while i < len(data) and data[i] != 0:
                     i += 1 + data[i]
                 i += 1
+            if i + 10 > len(data):
+                break
             rtype = int.from_bytes(data[i:i+2], "big")
             i += 8  # TYPE(2) + CLASS(2) + TTL(4)
             rdlen = int.from_bytes(data[i:i+2], "big")
             i += 2
+            if i + rdlen > len(data):
+                break
             if rtype == 1 and rdlen == 4:
                 out.append(".".join(str(b) for b in data[i:i+4]))
             i += rdlen
-        s.close()
     except Exception as e:
         return ["ERR:" + type(e).__name__]
     return out or ["NODATA"]
@@ -88,9 +125,18 @@ def probe(host, ip, port=443):
         t2 = time.time()
         req = f"GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
         ss.sendall(req.encode())
-        buf = ss.recv(200)
+        # 单次 recv(200) 常常拿不到完整状态行（响应头普遍超过 200 字节），
+        # 一直读到响应头结束或上限为止。
+        buf = b""
+        while len(buf) < 4096:
+            chunk = ss.recv(1024)
+            if not chunk:
+                break
+            buf += chunk
+            if b"\r\n\r\n" in buf:
+                break
         t3 = time.time()
-        line = buf.split(b"\r\n")[0].decode(errors="replace")
+        line = buf.split(b"\r\n", 1)[0].decode(errors="replace")
         ss.close()
         return {"ip": ip, "tcp": round(t1-t0, 3), "tls": round(t2-t1, 3),
                 "http": round(t3-t2, 3), "status": line, "err": None}

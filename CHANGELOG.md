@@ -9,6 +9,33 @@
 
 ## [未发布] — 2026-10-21 ~ 2026-10-23
 
+### 守卫与探测（2026-10-23）
+
+- 修复 `openwrt/guardian.sh` —— 3.5 / 3.6 的耗时计算多除了 2（取 max 后又除），
+  劣化阈值被压低一半；改为取 max
+- 修复 `openwrt/guardian.sh` —— 回退自愈的组名检查用 `grep` 正则，组名含
+  `[` / `*` / `.` 时误判「组缺失」并触发 hotupdate；改 `grep -F`
+- 修复 `openwrt/bulk-guard.sh` —— `state_set` 用 `|` 作 sed 分隔符，值里带 `|`
+  时 sed 报错被 `2>/dev/null` 吞掉、旧值残留（冷却 / 空闲计时会卡住）；
+  改为写临时文件后原子替换
+- 修复 `cdn/qq_cdn_probe.py` —— DNS 查询把整个域名编成单个含点号的标签
+  （wire format 非法），所有域名都回 NXDOMAIN，`dns` 与 `probe` 两段输出全假；
+  改为逐标签编码。同文件还有两处：`data[i] & 0xC0 == 0xC0` 的运算符优先级错误
+  （实际只在判断最低位）、单次 `recv(200)` 取不满 HTTP 状态行 —— 后者改为
+  循环读到 `
+
+`
+- 修复 `mihomo/rule_audit.py` —— `findings.json` 硬编码写到当前工作目录，
+  从仓根跑会写脏工作区；改为跟 `REPORT` 同目录
+- 修复 `openwrt/recover-now.sh` —— check 模式不再改写 `fake_ip_filter`
+- 调整 `tools/check-secrets.py` —— `SKIP_DIRS` 去掉 `cdn` / `mihomo`
+  （11 个跟踪文件此前完全不在扫描范围）
+- 验证 —— `sh -n` ✓、全部 `.py` `ast.parse` ✓、`check-docs.py` ✓（19 篇）、
+  `check-secrets.py` ✓（56 个文件，比改动前多 11 个）；`qq_cdn_probe.py dns` 实测
+  `qpic.cn` 与 `thirdwx.qlogo.cn` 解析出真实 IP；`state_set` 用 `a|b&c#d`
+  验证写读一致
+
+
 ### 文档骨架对齐系列仓（2026-10-23）
 
 - 调整 `docs/release-notes/` —— 文件名去掉 `v` 前缀（`v0.1.0.md` → `0.1.0.md`）；

@@ -79,6 +79,9 @@ CONFIG = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
 PROXIES = sys.argv[2] if len(sys.argv) > 2 else "proxies.json"
 LISTDIR = sys.argv[3] if len(sys.argv) > 3 else "lists"
 REPORT = sys.argv[4] if len(sys.argv) > 4 else "REPORT.md"
+# findings.json 跟着报告放同目录：从仓根跑时不要写脏工作区，
+# 从只读目录跑时也不至于直接抛 PermissionError。
+FINDINGS = os.path.join(os.path.dirname(os.path.abspath(REPORT)), "findings.json")
 
 # ---------- 解析 ----------
 def parse_gen(s):
@@ -533,6 +536,6 @@ json.dump({
     "exact_conflicts": [[key, lst] for key, lst in exact_conflicts[:200]],
     "ad_false_positive": ad_fp, "tests": test_rows,
     "cn_impact": cn_impact[:300],
-}, open("findings.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-print(f"wrote {REPORT} and findings.json")
+}, open(FINDINGS, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+print(f"wrote {REPORT} and {FINDINGS}")
 print(f"rules={len(rules)} effective={effective_self} redundant={redundant_same} misrouted={len(misrouted)} (severe={len(misrouted_severe)}, group={len(misrouted_group)}) tests_fail={sum(1 for t in test_rows if not t['ok'])}/{len(test_rows)}")

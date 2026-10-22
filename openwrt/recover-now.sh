@@ -87,16 +87,27 @@ run df -h /tmp /overlay
 
 section "1. 修复 fake-ip 过滤文件（去掉空行/注释/重复项）"
 FIP="$CRASHDIR/configs/fake_ip_filter"
-if [ -f "$FIP" ]; then
-    cp -f "$FIP" "$(dirname "$FIP")/fake_ip_filter.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null
-    log "改前行数=$(wc -l < "$FIP")  空行数=$(grep -c '^[[:space:]]*$' "$FIP")"
-    grep -v '^[[:space:]]*$' "$FIP" | grep -v '^[[:space:]]*#' | sed 's/[[:space:]]*$//' | awk '!a[$0]++' > "$FIP.tmp"
-    mv -f "$FIP.tmp" "$FIP"
-    log "改后行数=$(wc -l < "$FIP")"
-    log "-- 过滤清单 --"
-    cat "$FIP" | tee -a "$LOG"
+if [ "$MODE" = "check" ]; then
+    # check 模式承诺「只诊断、不改任何东西」，这里只打印现状
+    if [ -f "$FIP" ]; then
+        log "当前行数=$(wc -l < "$FIP")  空行数=$(grep -c '^[[:space:]]*$' "$FIP")"
+        log "-- 过滤清单 --"
+        cat "$FIP" | tee -a "$LOG"
+    else
+        log "!! $FIP 不存在"
+    fi
 else
-    log "!! $FIP 不存在"
+    if [ -f "$FIP" ]; then
+        cp -f "$FIP" "$(dirname "$FIP")/fake_ip_filter.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null
+        log "改前行数=$(wc -l < "$FIP")  空行数=$(grep -c '^[[:space:]]*$' "$FIP")"
+        grep -v '^[[:space:]]*$' "$FIP" | grep -v '^[[:space:]]*#' | sed 's/[[:space:]]*$//' | awk '!a[$0]++' > "$FIP.tmp"
+        mv -f "$FIP.tmp" "$FIP"
+        log "改后行数=$(wc -l < "$FIP")"
+        log "-- 过滤清单 --"
+        cat "$FIP" | tee -a "$LOG"
+    else
+        log "!! $FIP 不存在"
+    fi
 fi
 
 if [ "$MODE" = "check" ]; then

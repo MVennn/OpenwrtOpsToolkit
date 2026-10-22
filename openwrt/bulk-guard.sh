@@ -171,11 +171,11 @@ put() {
 state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" 2>/dev/null | head -1; }
 state_set() {
   [ -f "$STATE" ] || : > "$STATE"
-  if grep -q "^$1=" "$STATE" 2>/dev/null; then
-    sed -i "s|^$1=.*|$1=$2|" "$STATE"
-  else
-    echo "$1=$2" >> "$STATE"
-  fi
+  # 值里可能有 | & 等字符（节点名来自控制 API），不能拼进 sed 的 s|..|..|。
+  # 先写临时文件再原子替换，值按字面写入。
+  _tmp="$STATE.tmp.$$"
+  { grep -v "^$1=" "$STATE" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } > "$_tmp" &&
+    mv -f "$_tmp" "$STATE" || rm -f "$_tmp"
 }
 
 # ---- /connections 解析（无 jq/python）--------------------------------------
