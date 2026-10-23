@@ -125,6 +125,7 @@ docs/ 分四类（索引见 [README.md](README.md)）：
 
 | 变更 | 必须同步 |
 |---|---|
+| **修一个缺陷**（行为变化 / 判据修正 / 安全加固） | 对应正本补一条 **现象 → 根因 → 怎么避**：[PITFALLS.md](PITFALLS.md)；CHANGELOG 只是变更记录，**不算补文档** |
 | 改脚本（`openwrt/` `mihomo/` `cdn/`） | [TOOLS.md](TOOLS.md) 的工具表、[ARCHITECTURE.md](ARCHITECTURE.md) 的「会改什么」、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
 | 新增/改了一个环境变量 | [../openwrt/conf/device.conf.example](../openwrt/conf/device.conf.example)、[SECRETS.md](SECRETS.md) 的变量表 |
 | 脚本报错文案或用法变了 | [PITFALLS.md](PITFALLS.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 的对应节 |
