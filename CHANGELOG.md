@@ -9,6 +9,26 @@
 
 ## [未发布] — 2026-10-24
 
+### 大流量守卫体检修正（2026-10-24）
+
+- 修复 `openwrt/bulk-guard.sh` 三处叠加盲区（2026-10-23 Telegram 下载停滞
+  一整天不切机场的根因，详见 [docs/PITFALLS.md](docs/PITFALLS.md) P37–P39）：
+  1. `pool_health()` 改为以**实际承流节点 now** 为准 —— 原来只盯 `fixed`，
+     而被钉节点过不了核心 gstatic 健康检查时 url-test 会漂走（fixed=公共-01
+     OVH 通、now=公共-09 全死，守卫每轮都「健康」）。换钉候选改要求
+     gstatic + 大流量探测**双通**，钉住后复核 `now` 真的跟上，钉不住换下一个
+  2. 机场停留冷却 600s → **1200s** —— 原值恰好等于 `*/10` cron 周期，
+     切机场的下一轮 cron 必然赶上冷却到期「刚切就切回」；
+     `device.conf.example` 样例同步
+  3. 空闲探测**连续 2 次无效**（`bad_probe` 计数）即切机场并推进
+     `last_probe` —— 原来无效不判定、`last_probe` 不推进，死透的承流节点
+     要等 2 小时才有下一次探测机会
+- 验证 —— `sh -n` ✓（本机与路由器各一遍）；路由器实跑 `--status`
+  （机场停留 1200s 生效）、`--dry-run` 一轮无异常动作、实跑一轮对
+  死节点完成换钉；部署后 cron 轮按新逻辑正常切回/体检
+- 部署 —— 已同步 `/etc/ShellCrash/bulk-guard.sh` 与
+  `/etc/openwrt-ops/device.conf`（`BULK_RETURN_COOLDOWN=1200`）
+
 ### 文档正本与守卫规则（2026-10-24）
 
 - 新增 `docs/DOC-RULES.md` 变更触发矩阵一条 —— **修一个缺陷必须给对应正本补一条**
