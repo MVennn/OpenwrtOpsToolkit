@@ -26,6 +26,9 @@
 #      之后连续 IDLE_SWITCH 秒没有「在传」的连接，就切回公共池，并钉住
 #      缓存里吞吐最好的节点。
 #   5) 公共池和机场都慢：判定为源站/上传方慢，不再在两个池之间来回切。
+#   6) 公共池体检以「实际承流节点 now」为准（不是 fixed）：钉住的节点过不了
+#      核心健康检查时 url-test 会自动漂走，fixed 与承流节点脱节；换钉的候选
+#      必须 gstatic + 大流量探测双通，钉住后复核 now 真的跟上才算数。
 #
 # 为什么不在有连接时跑探测下载：探测流量会和下载抢带宽，把好节点误判成坏节点。
 # 为什么切回公共池要等空闲：切组 = 断流；空闲时切没有代价。
@@ -113,7 +116,9 @@ SETTLE_SEC="${BULK_SETTLE_SEC:-20}"
 # 机场 → 公共：连续空闲这么久（没有正在传的连接）才回切。
 IDLE_SWITCH="${BULK_IDLE_SWITCH:-300}"
 # 公共 → 机场：最少停留这么久再考虑回切，避免在两个池之间来回抖。
-RETURN_COOLDOWN="${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-600}}"
+# 必须大于 cron 周期：等于时（600s vs */10）切机场的那轮之后的下一轮 cron
+# 时间戳恰好 ≥ 冷却到期点，每回都「刚切就切回」，机场停留名存实亡。
+RETURN_COOLDOWN="${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-1200}}"
 
 STATE="${BULK_STATE:-$RUNTIME_DIR/.bulk_guard_state}"
 SPEED="${BULK_SPEED_STATE:-$RUNTIME_DIR/.bulk_guard_speed}"
@@ -303,8 +308,11 @@ candidate_list() {
   done
 }
 
-# 找一个能用的公共节点（缓存顺序优先），不看「本会话已试」——
+# 找一个钉得住的公共节点（缓存顺序优先），不看「本会话已试」——
 # 钉住的节点死掉时必须无条件换一个，否则 fixed 会让 URLTest 无法自愈。
+# 必须双通：gstatic 过健康检查（钉上去不会被核心漂走）+ 大流量探测能承载。
+# 2026-10-23 实测存在「OVH 通、gstatic 死」的节点（公共-01）：钉上去核心
+# 不认，url-test 漂到别的节点，fixed 形同虚设。
 pick_live_node() {
   _ex="$1"
   {
@@ -313,38 +321,47 @@ pick_live_node() {
   } | awk '!seen[$0]++' | while IFS= read -r _n; do
     [ -z "$_n" ] && continue
     [ "$_n" = "$_ex" ] && continue
-    if node_bulk_alive "$_n"; then
+    if node_alive "$_n" && node_bulk_alive "$_n"; then
       echo "$_n"
       break
     fi
   done
 }
 
-# 公共池被钉住后 URLTest 不再自动切换：每轮先确认钉住的节点还活着，
-# 死了就换一个活的；全都不活就切机场。未钉住时交给 URLTest，不额外探测。
+# 公共池的体检以「实际承流节点 now」为准，不以 fixed 为准：
+# mihomo 对钉住但健康检查不过的节点会回退到按延迟自动选，
+# 于是可能出现 fixed=节点A（OVH 通、gstatic 死）而流量实际走节点B
+# （gstatic 活、大流量死）—— 只查 fixed 会每轮都「健康」，看不见真正的死节点。
 pool_health() {
-  _pin=$(grp_fixed "$PUBLIC")
-  if [ -z "$_pin" ]; then
-    # 未钉住时 URLTest 仍可能选到 gstatic 健康但大流量不通的节点；
-    # 每次只多一次 API 调用，发现当前节点不合格就先钉一个合格的。
-    _pin=$(grp "$PUBLIC")
-    [ -n "$_pin" ] || return 0
-  fi
+  _now=$(grp "$PUBLIC")
+  _fixed=$(grp_fixed "$PUBLIC")
+  _pin=${_now:-$_fixed}
+  [ -n "$_pin" ] || return 0
   node_bulk_alive "$_pin" && return 0
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY-RUN: 公共池当前节点「$_pin」不能承载大流量探测，将改钉一个可用节点"
+    log "DRY-RUN: 公共池当前承流节点「$_pin」不能承载大流量探测，将改钉一个可用节点"
     return 0
   fi
-  _rep=$(pick_live_node "$_pin")
-  if [ -n "$_rep" ]; then
-    if [ "$(put "$PUBLIC" "$_rep")" = "204" ]; then
-      log "FIX: 公共池「$_pin」不能承载大流量探测，改钉「$_rep」"
-    else
-      log "ERROR: 公共池「$_pin」不能承载大流量探测，改钉「$_rep」被控制 API 拒绝"
+  _ex="$_pin"
+  _tries=0
+  while [ "$_tries" -lt 2 ]; do
+    _tries=$((_tries + 1))
+    _rep=$(pick_live_node "$_ex")
+    [ -n "$_rep" ] || break
+    if [ "$(put "$PUBLIC" "$_rep")" != "204" ]; then
+      log "ERROR: 公共池改钉「$_rep」被控制 API 拒绝"
+      break
     fi
-    return 0
-  fi
-  switch_airport "公共池「$_pin」不能承载大流量探测且没有可用替代"
+    sleep 3
+    _after=$(grp "$PUBLIC")
+    if [ "$_after" = "$_rep" ]; then
+      log "FIX: 公共池「$_pin」不能承载大流量探测，改钉「$_rep」（钉住生效）"
+      return 0
+    fi
+    log "INFO: 候选「$_rep」钉不住（核心仍选「${_after:-?}」），换下一个"
+    _ex="$_rep"
+  done
+  switch_airport "公共池「$_pin」不能承载大流量探测且没有钉得住的替代"
   return 1
 }
 
@@ -414,9 +431,22 @@ idle_probe() {
   [ $((NOW_TS - LAST)) -ge "$PROBE_INTERVAL" ] || return 0
   _bps=$(probe_bps)
   if [ "$_bps" -lt 0 ]; then
-    log "WARN: 探测无效（响应码/字节数不符），本次不判定（下轮重试）"
+    # delay 探测能通、4MB 正文跑不动 = 承流节点废了或组路径坏。
+    # 连续 2 次无效就切机场并推进 last_probe（别再每轮烧 4MB 重试）。
+    # 2026-10-23 之前只「本次不判定」，公共池死透时两小时才轮到一次探测、
+    # 探了又无效，Telegram/媒体下载停滞一整天也不会切机场。
+    BAD=$(state_get bad_probe); BAD=${BAD:-0}; BAD=$((BAD + 1))
+    state_set bad_probe "$BAD"
+    if [ "$BAD" -ge 2 ]; then
+      state_set bad_probe 0
+      state_set last_probe "$NOW_TS"
+      switch_airport "空闲探测连续 $BAD 次无效（组路径无法承载数据）"
+    else
+      log "WARN: 探测无效（响应码/字节数不符），第 $BAD 次（下轮重试）"
+    fi
     return 0
   fi
+  state_set bad_probe 0
   state_set last_probe "$NOW_TS"
   _cur=$(grp "$PUBLIC")
   [ -n "$_cur" ] && speed_set "$_cur" "$_bps"

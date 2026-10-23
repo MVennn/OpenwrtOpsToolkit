@@ -111,7 +111,9 @@ ROUTER_HEALTH_DIR=/etc/router-health
 #BULK_SPEED_TTL=3600
 #BULK_SETTLE_SEC=20
 # 机场停留多久、连续空闲多久之后切回公共池（秒）
-#BULK_RETURN_COOLDOWN=600
+# 停留冷却必须大于 cron 周期：等于时切机场的下一轮 cron 恰好赶上冷却到期，
+# 每回「刚切就切回」（2026-10-23 之前就是 600s = */10 的 cron 周期）
+#BULK_RETURN_COOLDOWN=1200
 #BULK_IDLE_SWITCH=300
 # 状态、缓存、已试列表、锁与日志（都在 $RUNTIME_DIR，重启即清）
 #BULK_STATE=/tmp/ShellCrash/.bulk_guard_state
@@ -120,4 +122,4 @@ ROUTER_HEALTH_DIR=/etc/router-health
 #BULK_LOCK=/tmp/ShellCrash/.bulk_guard.lock
 #BULK_LOG=/tmp/ShellCrash/bulk-guard.log
 # 旧名，仍兼容；等价于 BULK_RETURN_COOLDOWN
-#BULK_COOLDOWN=600
+#BULK_COOLDOWN=1200
