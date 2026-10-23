@@ -405,3 +405,4 @@ CI（`.github/workflows/ci.yml`）跑的就是这几样，外加一条明文凭�
 |---|---|---|
 | 2026-10-22 | 收尾大扫除：清 `__pycache__`；脚本计数四 → 五；补 `bulk-guard.sh` 的键表 / 会改什么 / 回归项；`docs/TOOLS.md` 补 `tools/make_social_preview.py`；`docs/release-notes/README.md` 补「反馈入口」规则 | 见 CHANGELOG / PROGRESS 同名批次 |
 | 2026-10-22 | 大流量守卫按吞吐轮换：探测超时算慢、按 connection id 求正增量、公共池内改试（每会话最多 2 个）、钉住节点健康检查、机场空闲回切；cron `*/10` → `*/3`；同步键表 / 保留策略 / 回归项 | 见 CHANGELOG / PROGRESS 同名批次 |
+| 2026-10-23 | 收尾大扫除：按 §2.2「仓内不留运行产物」清 `tools/__pycache__`（8K）与空的 `.work/tmp/`；补 4 条漏登记的文档与守卫改动到 CHANGELOG | 仓库无体积变化（本轮无大件产物）；`check-docs.py` ✓（20 篇）、`check-secrets.py` ✓（57 文件）、4 个 `.sh` 的 `sh -n` ✓、15 个 `.py` 的 `ast.parse` ✓、shell 均为 LF。红线未动：`openwrt/conf/device.conf.example`（要入库的样例）；`openwrt/conf/device.conf` 本机不存在，符合 §5.3 的 `test ! -e` 自检 |
