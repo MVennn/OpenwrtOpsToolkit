@@ -139,6 +139,31 @@ put() {
   $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' -d "{\"name\":\"$2\"}" 2>/dev/null
 }
 
+# 同一时间只允许一个实例：3.6 逐个候选探测最坏要跑两分多钟，加上 3.5 与第 1 节
+# 的等待，整轮可能超过 cron 的 5 分钟；叠轮会让两轮同时切策略组、同时写
+# .clean_node / .clean_verdict，日志记录与实际生效节点对不上。
+# 锁形状照抄 bulk-guard.sh：mkdir 原子建锁 + pid/ts + 过期回收 + trap 清理。
+GUARDIAN_LOCK="$RUNTIME_DIR/guardian.lock"
+acquire_lock() {
+  _now=$(date +%s)
+  if [ -d "$GUARDIAN_LOCK" ]; then
+    _lp=$(cat "$GUARDIAN_LOCK/pid" 2>/dev/null)
+    _lt=$(cat "$GUARDIAN_LOCK/ts" 2>/dev/null)
+    case "$_lt" in ''|*[!0-9]*) _lt=0 ;; esac
+    if [ -n "$_lp" ] && kill -0 "$_lp" 2>/dev/null && [ $((_now - _lt)) -lt 600 ]; then
+      log "另一实例在跑（pid=$_lp），跳过本轮"
+      exit 0
+    fi
+    rm -f "$GUARDIAN_LOCK/pid" "$GUARDIAN_LOCK/ts" 2>/dev/null
+    rmdir "$GUARDIAN_LOCK" 2>/dev/null
+  fi
+  mkdir "$GUARDIAN_LOCK" 2>/dev/null || { log "无法取得实例锁，跳过本轮"; exit 0; }
+  echo $$ > "$GUARDIAN_LOCK/pid"
+  echo "$_now" > "$GUARDIAN_LOCK/ts"
+  trap 'rm -f "$GUARDIAN_LOCK/pid" "$GUARDIAN_LOCK/ts" 2>/dev/null; rmdir "$GUARDIAN_LOCK" 2>/dev/null' EXIT INT TERM HUP
+}
+acquire_lock
+
 # 通配匹配：$1 = 节点名，$2 = `|` 分隔的通配模式串；命中返回 0
 match_patterns() {
   _mp_name=$1
