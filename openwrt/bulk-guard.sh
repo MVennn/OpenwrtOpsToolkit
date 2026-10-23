@@ -248,6 +248,17 @@ node_alive() {
     "$CTRL/proxies/$(enc "$1")/delay" 2>/dev/null)
   [ "$_c" = "200" ]
 }
+# 大流量探测 URL 的存活检查：gstatic 204 只能说明节点能出网，不代表它能
+# 承载大文件。2026-10-23 实测 10 条公共节点里 3 条（02/03/06）gstatic 200、
+# 但 proof.ovh.net 的 TLS 握手 EOF / HTTP 503，bulk-guard 钉上去后大流量全 000。
+# 这里要求 HTTP 200 且响应体含 "delay"（失败时 mihomo 返回 503 + message）。
+node_bulk_alive() {
+  _out=$($CURL -s -m 10 -w '\n%{http_code}' -H "$AUTH" -G \
+    --data-urlencode "url=$PROBE_URL" --data-urlencode "timeout=4000" \
+    "$CTRL/proxies/$(enc "$1")/delay" 2>/dev/null)
+  _code=$(echo "$_out" | tail -1)
+  [ "$_code" = "200" ] && echo "$_out" | grep -q '"delay"'
+}
 # 走本组的存活检查：能拿到 200（delay 结果）返回 0
 group_alive() {
   _c=$($CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" -G \
@@ -302,7 +313,7 @@ pick_live_node() {
   } | awk '!seen[$0]++' | while IFS= read -r _n; do
     [ -z "$_n" ] && continue
     [ "$_n" = "$_ex" ] && continue
-    if node_alive "$_n"; then
+    if node_bulk_alive "$_n"; then
       echo "$_n"
       break
     fi
@@ -313,22 +324,27 @@ pick_live_node() {
 # 死了就换一个活的；全都不活就切机场。未钉住时交给 URLTest，不额外探测。
 pool_health() {
   _pin=$(grp_fixed "$PUBLIC")
-  [ -n "$_pin" ] || return 0
-  node_alive "$_pin" && return 0
+  if [ -z "$_pin" ]; then
+    # 未钉住时 URLTest 仍可能选到 gstatic 健康但大流量不通的节点；
+    # 每次只多一次 API 调用，发现当前节点不合格就先钉一个合格的。
+    _pin=$(grp "$PUBLIC")
+    [ -n "$_pin" ] || return 0
+  fi
+  node_bulk_alive "$_pin" && return 0
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY-RUN: 公共池钉住的「$_pin」不可达，将改钉一个可用节点"
+    log "DRY-RUN: 公共池当前节点「$_pin」不能承载大流量探测，将改钉一个可用节点"
     return 0
   fi
   _rep=$(pick_live_node "$_pin")
   if [ -n "$_rep" ]; then
     if [ "$(put "$PUBLIC" "$_rep")" = "204" ]; then
-      log "FIX: 公共池钉住的「$_pin」不可达，改钉「$_rep」"
+      log "FIX: 公共池「$_pin」不能承载大流量探测，改钉「$_rep」"
     else
-      log "ERROR: 公共池钉住的「$_pin」不可达，改钉「$_rep」被控制 API 拒绝"
+      log "ERROR: 公共池「$_pin」不能承载大流量探测，改钉「$_rep」被控制 API 拒绝"
     fi
     return 0
   fi
-  switch_airport "公共池钉住的「$_pin」不可达且没有可用替代"
+  switch_airport "公共池「$_pin」不能承载大流量探测且没有可用替代"
   return 1
 }
 
@@ -361,8 +377,8 @@ handle_slow() {
   while IFS= read -r _cand; do
     [ -z "$_cand" ] && continue
     [ $((_tried + _n)) -ge "$MAX_TRY" ] && break
-    if ! node_alive "$_cand"; then
-      log "INFO: 候选「$_cand」不可达，跳过"
+    if ! node_bulk_alive "$_cand"; then
+      log "INFO: 候选「$_cand」不能承载大流量探测，跳过"
       continue
     fi
     _n=$((_n + 1))

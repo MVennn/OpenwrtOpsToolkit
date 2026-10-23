@@ -332,12 +332,15 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
    窗口低于 `BULK_LIVE_MIN_BPS` 才动。第一个窗口慢、第二个窗口 0 字节按「停滞」；
    两个窗口都 0 按「暂停」放过；下载在窗口内结束不判。
 3. **确认为慢**：先在 `BULK_PUBLIC` 内部按吞吐缓存从快到慢改试，每个下载会话最多
-   `BULK_MAX_TRY`（默认 2）个候选；每个候选给 `BULK_SETTLE_SEC` 重连，再采样
-   `BULK_LIVE_SAMPLE_SEC` 的真实速率。候选都跑不满（或没有候选）→ 切机场。
+   `BULK_MAX_TRY`（默认 2）个候选；候选先用 `node_bulk_alive()` 过一遍
+   （`PROBE_URL` 返回 200 且响应体含 `"delay"`），再给 `BULK_SETTLE_SEC` 重连、
+   采样 `BULK_LIVE_SAMPLE_SEC` 的真实速率。候选都跑不满（或没有候选）→ 切机场。
 4. **组在机场**：停留满 `BULK_RETURN_COOLDOWN` 且连续 `BULK_IDLE_SWITCH` 秒没有
    「在传」的连接 → 切回 `BULK_PUBLIC`，并钉住缓存里吞吐最好的节点。
 5. **钉住节点的健康检查**：`BULK_PUBLIC` 被钉住后 URLTest 不再自动切换（控制 API
-   只能钉、不能解钉），所以每轮先测钉住的节点；不可达就换一个活的，全都不活就切机场。
+   只能钉、不能解钉），所以每轮先用 `node_bulk_alive()` 测钉住的节点
+   （`PROBE_URL`，不是 gstatic）；不合格就换一个能承载大流量的，全都不行就切机场。
+   未钉住时也检查 URLTest 当前节点，防止它选到「gstatic 通但 OVH 不通」的节点。
 6. **切到机场后**：本会话不再回试公共池；机场也跑不满时不做额外动作 —— 那通常是
    源站/上传方慢，来回切只会更糟。
 

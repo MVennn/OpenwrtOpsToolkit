@@ -390,6 +390,19 @@
 - **怎么避**：复制后先 `--all` 跑一遍，核对扫描文件数是否符合预期；
   占位符只豁免匹配片段本身，不要整行放行。
 
+### P36 大流量守卫的存活检查必须用大流量探测 URL
+
+- **现象**：`bulk-guard.sh` 把「公共-02」钉进 `📺 大流量`，但 `proof.ovh.net`
+  4MB 三次都是 000；同一节点对 `gstatic.com/generate_204` 的延迟测试是 200/335ms。
+- **根因**：`node_alive()` 只测 `ALIVE_URL`（gstatic 204），而大流量实际走
+  `PROBE_URL`（`proof.ovh.net`）。公共节点可以「能出网」但到 OVH 的 TLS 握手 EOF /
+  HTTP 502；mihomo 的 `/delay` 对后者返回 503 + message，原逻辑只看 HTTP 状态码。
+- **解法**：新增 `node_bulk_alive()`，要求 `/delay?url=$PROBE_URL` 返回 HTTP 200
+  **且响应体含 `"delay"`**；`pool_health()`、`pick_live_node()`、`handle_slow()`
+  全部改用它。未钉住时也检查 URLTest 当前节点，不合格就先钉一个合格节点。
+- **验证**：2026-10-23 实测 10 条公共节点里 3 条（02/03/06）只能过 gstatic；
+  修复后守卫跳过它们、钉 `公共-08`，OVH 4MB 实测 1.9–2.2 MB/s。
+
 ## 4. 还没写进来的坑
 
 以下几条**知道存在但证据还不完整**，先记在这里，等复现后补完整：

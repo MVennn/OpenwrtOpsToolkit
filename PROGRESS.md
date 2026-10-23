@@ -182,3 +182,26 @@ Telegram 走「大流量 → 公共备用」时实测只有 ~85 KB/s，而同一
 ## 状态: 已完成
 
 ---
+
+---
+# 2026-10-23 大流量守卫：用探测 URL 做二次校验
+
+## 背景
+公共节点可以过 `gstatic.com/generate_204` 健康检查，却到 `proof.ovh.net` 的 TLS 握手
+EOF / HTTP 502。旧 `bulk-guard.sh` 的 `node_alive()` 只测 gstatic，钉点/候选都按它判，
+结果把「能出网但不能跑大文件」的节点钉进 `📺 大流量`，OVH 4MB 连续 000。
+
+## 已完成变更
+- [x] 新增 `node_bulk_alive()`：`/delay?url=$PROBE_URL` 必须 HTTP 200 且响应体含 `"delay"`
+- [x] `pool_health()` 改用它；未钉住时也检查 URLTest 当前节点，不合格先钉一个合格节点
+- [x] `pick_live_node()` / `handle_slow()` 的候选检查改用它
+- [x] 文档同步：`docs/ARCHITECTURE.md` §4.6、`docs/TOOLS.md`、`docs/PITFALLS.md` P36
+
+## 验证
+- `sh -n openwrt/bulk-guard.sh` ✓
+- 路由器实跑：钉住的 `公共-02` 被判不合格 → 改钉 `公共-08`；
+  `proof.ovh.net` 4MB 实测 1.9–2.2 MB/s（修复前 17–34 KB/s / 000）
+- 10 条公共节点 OVH 2MB 实测：08 889 KB/s、05 582、10 580、07 488、09 418、
+  04 386、06 180、01 85；02/03 TLS EOF / 503
+
+## 状态: 已完成

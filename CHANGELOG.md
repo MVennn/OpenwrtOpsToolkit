@@ -9,6 +9,18 @@
 
 ## [未发布] — 2026-10-24
 
+### 大流量守卫二次校验（2026-10-23）
+
+- 修复 `openwrt/bulk-guard.sh` —— 新增 `node_bulk_alive()`：`/delay` 必须返回
+  HTTP 200 **且响应体含 `"delay"`**，探测 URL 用 `PROBE_URL`（`proof.ovh.net`）
+  而不是 `ALIVE_URL`（gstatic 204）。`pool_health()` / `pick_live_node()` /
+  `handle_slow()` 全部改用它；未钉住时也检查 URLTest 当前节点
+- 根因 —— 公共节点可以过 gstatic 健康检查，但到 OVH 的 TLS 握手 EOF / HTTP 502；
+  原逻辑只看 HTTP 状态码，会把「能出网但不能跑大文件」的节点钉进 `📺 大流量`
+  （2026-10-23 实测 10 条公共节点里 02/03/06 属于这一类）
+- 验证 —— `sh -n` ✓；路由器实跑 `--status` 显示钉住 `公共-08`，
+  `proof.ovh.net` 4MB 实测 1.9–2.2 MB/s（修复前钉到 `公共-02` 时 000）
+
 ### 守护实例锁（2026-10-24）
 
 - 新增 `openwrt/guardian.sh` 实例锁 —— 与 AX 仓同一处问题：整轮可能超过 cron 间隔，
