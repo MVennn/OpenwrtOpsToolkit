@@ -9,6 +9,16 @@
 
 ## [未发布] — 2026-10-24
 
+### 文档正本与守卫规则（2026-10-24）
+
+- 新增 `docs/DOC-RULES.md` 变更触发矩阵一条 —— **修一个缺陷必须给对应正本补一条**
+  （只改代码不改正本，下次还会踩同一个坑）
+- 新增 `docs/PITFALLS.md` P31–P35 五条 —— 阈值减半、`mkdir` 实例锁、
+  名字进 shell 的转义、check 模式必须先判 mode 再动作、同落点变体互相覆盖
+- 新增 `docs/SECRETS.md`「推送前脱敏规则」通用章节 —— 凭据 / 本机用户目录 / 真实邮箱
+  三类拦截面与三条放行口径；`tools/check-secrets.py` 相应加占位用户名放行
+- 新增 `tools/check-secrets.py` —— 把 CI 里内联的 grep 凭据扫描换成统一守卫脚本
+
 ### 大流量守卫二次校验（2026-10-23）
 
 - 修复 `openwrt/bulk-guard.sh` —— 新增 `node_bulk_alive()`：`/delay` 必须返回
