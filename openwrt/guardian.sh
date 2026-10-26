@@ -128,7 +128,8 @@ log() {
     *FIX*|*ALERT*|*ERROR*|*WARN*) logger -t guardian -p daemon.warn "$*" 2>/dev/null ;;
   esac
 }
-enc() { echo "$1" | sed 's/ /%20/g'; }
+enc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g'; }
+json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 grp() { $CURL -s -m 5 -H "$AUTH" "$CTRL/proxies/$(enc "$1")" 2>/dev/null | grep -oE '"now":"[^"]*"' | head -1 | sed 's/"now":"//;s/"$//'; }
 put() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -136,8 +137,9 @@ put() {
     echo 204
     return 0
   fi
-  $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' -d "{\"name\":\"$2\"}" 2>/dev/null
+  $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' -d "{\"name\":\"$(json_esc "$2")\"}" 2>/dev/null
 }
+[ -z "$API_SECRET" ] && log "ERROR: 未从 $API_CFG 读到 secret，本轮控制 API 动作将全部失效"
 
 # 同一时间只允许一个实例：3.6 逐个候选探测最坏要跑两分多钟，加上 3.5 与第 1 节
 # 的等待，整轮可能超过 cron 的 5 分钟；叠轮会让两轮同时切策略组、同时写
@@ -291,15 +293,18 @@ fi
 # ---------- 3.5) 通用出口健康守卫 ----------
 # 节点会劣化（表现为全站超时）。按真实出口耗时判定，超过阈值就复位到自动选择组。
 if [ -n "$POOL_GROUP" ] && [ -n "$POOL_FALLBACK_GROUP" ]; then
-  T1=$($CURL -s -m 12 -o /dev/null -w "%{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
-  T2=$($CURL -s -m 12 -o /dev/null -w "%{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
-  if [ -n "$T1" ] && [ -n "$T2" ]; then
-    # 两次探测取较慢那次（ARCHITECTURE §3.5）。$1/$2 是同一行的两个字段，
+  P1=$($CURL -s -m 12 -o /dev/null -w "%{http_code} %{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
+  P2=$($CURL -s -m 12 -o /dev/null -w "%{http_code} %{time_total}" -x "$PROXY" "$PROBE_URL" 2>/dev/null)
+  if [ -n "$P1" ] && [ -n "$P2" ]; then
+    # 两次探测取较慢那次（ARCHITECTURE §3.5）。$2/$4 是两次的耗时，
     # 取 max 后不能再除 2 —— 除 2 会把劣化阈值整体压低一半。
-    MS=$(echo "$T1 $T2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t}')
-    if ge_sec "$MS" "$EXIT_MAX_SEC"; then
+    MS=$(echo "$P1 $P2" | awk '{t=($2>$4?$2:$4)} END{printf "%.1f", t}')
+    BAD=0
+    case "${P1%% *}" in 2*|3*) ;; *) BAD=1 ;; esac
+    case "${P2%% *}" in 2*|3*) ;; *) BAD=1 ;; esac
+    if [ "$BAD" = "1" ] || ge_sec "$MS" "$EXIT_MAX_SEC"; then
       if [ "$(put "$POOL_GROUP" "$POOL_FALLBACK_GROUP")" = "204" ]; then
-        log "FIX: 通用出口耗时 ${MS}s（>${EXIT_MAX_SEC}s，疑似节点劣化），复位为「$POOL_FALLBACK_GROUP」"
+        log "FIX: 通用出口劣化（HTTP ${P1%% *}/${P2%% *}，耗时 ${MS}s，阈值 ${EXIT_MAX_SEC}s），复位为「$POOL_FALLBACK_GROUP」"
       else
         log "ERROR: 通用出口复位失败（控制 API 拒绝）"
       fi
@@ -311,10 +316,14 @@ fi
 # 干净出口会间歇性劣化。健康探测必须用真实页面 —— 小响应的 API 端点抓不到长尾。
 # 候选顺序按实测稳定性排；绝不降级到「不可信」的节点（可能被目标站按地区拒绝服务）。
 clean_exit_ms() {
-  C1=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
-  C2=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
+  C1=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{http_code} %{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
+  C2=$($CURL -s -m 15 -o /dev/null --max-filesize 131072 -w "%{http_code} %{time_total}" -x "$PROXY" "$CLEAN_PROBE_URL" 2>/dev/null)
   [ -z "$C1" ] && [ -z "$C2" ] && { echo "99"; return; }
-  echo "$C1 $C2" | awk '{t+=($1>$2?$1:$2)} END{printf "%.1f", t}'
+  # 任一探测不是 2xx/3xx 都按劣化处理：节点被封/被拒时往往"快速失败"，
+  # 只看 time_total 会把 502、连接被拒误判为健康。
+  case "${C1%% *}" in 2*|3*) ;; *) echo "99"; return ;; esac
+  case "${C2%% *}" in 2*|3*) ;; *) echo "99"; return ;; esac
+  echo "$C1 $C2" | awk '{t=($2>$4?$2:$4)} END{printf "%.1f", t}'
 }
 clean_exit_bad() {
   MS=$(clean_exit_ms)

@@ -69,6 +69,9 @@ def tracked_files() -> list[str]:
     except FileNotFoundError:
         print("✗ 找不到 git 命令")
         raise SystemExit(2)
+    if out.returncode != 0:
+        print("✗ git ls-files 失败：" + (out.stderr or "").strip())
+        raise SystemExit(2)
     return [x for x in out.stdout.splitlines() if x.strip()]
 
 
@@ -95,6 +98,9 @@ def is_doc_file(rel: str) -> bool:
 
 def main() -> int:
     files = walk_files() if "--all" in sys.argv else tracked_files()
+    if not files:
+        print("✗ 没有可扫描的文件（git ls-files 输出为空，检查是否在仓库内）")
+        return 2
     bad = []
     for rel in files:
         if os.path.splitext(rel)[1].lower() in SKIP_EXT:
@@ -118,10 +124,13 @@ def main() -> int:
                         if PLACEHOLDER.search(m.group(0)):
                             continue
                         if name == "本机用户目录":
-                            # 截断形式的描述性引用，或占位用户名（C:/Users/You/）
-                            if TRUNCATED_PATH.search(line):
+                            # 只豁免命中片段本身：截断形式（C:/Users/x\...）或
+                            # 占位用户名（C:/Users/You）。同一行里并排写下的
+                            # 完整真实路径仍会被报出来。
+                            frag = line[m.start():m.start() + 120]
+                            if allow_truncated and TRUNCATED_PATH.match(frag):
                                 continue
-                            if PLACEHOLDER_USER.search(line):
+                            if PLACEHOLDER_USER.match(frag):
                                 continue
                         bad.append((rel, lineno, name, line.strip()[:120]))
         except OSError:

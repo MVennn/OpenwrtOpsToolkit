@@ -449,3 +449,22 @@
   审计器的「广告误伤」检测能看出来，但它**只检查广告组**，其他组的关键词误伤没覆盖。
 - 闪存（overlay）写满后的表现与 `/tmp` 写满**不一样**（一个是 ENOSPC，一个是 OOM），
   本仓目前**没有**对 overlay 水位的守卫。
+
+### P40 `nft list table <名>` 缺省查 ip 族，inet 表永远删不掉
+
+- **现象**：`recover-now.sh` 第 2 节日志显示执行了，但 DNS 劫持表还在，内网依旧没网。
+- **根因**：`DNS_HIJACK_TABLES` 写的是 `inet googleroute inet shellcrash ...` 的空格串，
+  循环把每个词当独立表名；`nft list table googleroute` 不带 family 时默认 **ip** 族，
+  而表是 **inet** 族，查不到也就不删。`nft delete table $t` 同理。
+- **解法**：配置改成 `family:表名`（`inet:googleroute`），循环里拆开再 `nft list/delete table $fam $t`；
+  默认值同步。凡是要操作自建表的地方都按 `inet <表名>` 写全。
+- **验证**：`recover-now.sh check` 看 `nft list tables` 前后对比；真机删表后 DNS 回到直连。
+
+### P41 BusyBox 的 `ip` 没有 `-brief`，错误被 `2>/dev/null` 吞掉后会误判 WAN
+
+- **现象**：恢复脚本报「WAN 口没有地址」并执行 `ifup wan`，但面板上 WAN 明明有地址。
+- **根因**：`ip -brief addr show` 是 iproute2 的选项，BusyBox 自带 `ip` 不支持；
+  输出为空 + 错误被吞，`grep -q wan` 恒失败。
+- **解法**：先探测 `ip -brief addr show >/dev/null 2>&1` 是否可用，不可用回退
+  `ip -4 addr show`；或直接用 `ifstatus wan` / ubus。判断「有没有地址」不要依赖某个实现的输出格式。
+- **验证**：在只有 BusyBox `ip` 的设备上跑一次恢复脚本的 `check` 模式，确认不再误报。

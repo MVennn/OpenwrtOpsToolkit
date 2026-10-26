@@ -59,7 +59,7 @@ RC_LOCAL="${RC_LOCAL:-/etc/rc.local}"
 GUARDIAN_PATH="${GUARDIAN_PATH:-$CRASHDIR/guardian.sh}"
 LEGACY_WD="${LEGACY_WD:-$CRASHDIR/starts/start_legacy_wd.sh}"
 RECOVER_LOG="${RECOVER_LOG:-/root/recover-last.log}"
-DNS_HIJACK_TABLES="${DNS_HIJACK_TABLES:-inet googleroute inet shellcrash ip shellcrash ip6 shellcrash}"
+DNS_HIJACK_TABLES="${DNS_HIJACK_TABLES:-inet:googleroute inet:shellcrash ip:shellcrash ip6:shellcrash}"
 CLEAN_GROUP="${CLEAN_GROUP:-}"
 DIRECT_TEST_HOST="${DIRECT_TEST_HOST:-www.baidu.com}"
 PROXY_TEST_URL="${PROXY_TEST_URL:-https://www.google.com}"
@@ -73,11 +73,13 @@ log() { printf '%s\n' "$*" | tee -a "$LOG"; }
 section() { log ""; log "=============================="; log "$*"; log "=============================="; }
 run() { log "\$ $*"; "$@" 2>&1 | tee -a "$LOG"; }
 
+port_listening() { netstat -lntp 2>/dev/null | grep -qE "[:.]$1[[:space:]]"; }
+port_count() { netstat -lntp 2>/dev/null | grep -cE "[:.]$1[[:space:]]"; }
 core_up() {
-    pidof "$CORE_PROC" >/dev/null 2>&1 && netstat -lntp 2>/dev/null | grep -q ":$MIXED_PORT"
+    pidof "$CORE_PROC" >/dev/null 2>&1 && port_listening "$MIXED_PORT"
 }
 dns_up() {
-    netstat -lntp 2>/dev/null | grep -q ":$DNS_PORT"
+    port_listening "$DNS_PORT"
 }
 
 section "0. 环境 $(date)"
@@ -113,8 +115,8 @@ fi
 if [ "$MODE" = "check" ]; then
     section "2. 当前状态（check 模式，不做任何修改）"
     run pidof "$CORE_PROC"
-    log "$MIXED_PORT 端口: $(netstat -lntp 2>/dev/null | grep -c ":$MIXED_PORT")"
-    log "$DNS_PORT DNS 端口: $(netstat -lntp 2>/dev/null | grep -c ":$DNS_PORT")"
+    log "$MIXED_PORT 端口: $(port_count "$MIXED_PORT")"
+    log "$DNS_PORT DNS 端口: $(port_count "$DNS_PORT")"
     run nft list tables
     log "-- 内网解析测试 --"
     run nslookup "$DIRECT_TEST_HOST" 127.0.0.1
@@ -123,10 +125,16 @@ if [ "$MODE" = "check" ]; then
 fi
 
 section "2. 先摘掉 DNS 劫持，让内网直连立刻恢复（此时外网不走代理）"
-for t in $DNS_HIJACK_TABLES; do
-    [ -z "$t" ] && continue
-    if nft list table $t >/dev/null 2>&1; then
-        nft delete table $t 2>/dev/null && log "已删除 nft 表：$t"
+# 格式：family:表名，例如 inet:googleroute。只写表名时按 inet 处理。
+HIJACK_NAMES=""
+for spec in $DNS_HIJACK_TABLES; do
+    [ -z "$spec" ] && continue
+    fam=${spec%%:*}
+    t=${spec#*:}
+    [ "$fam" = "$t" ] && fam=inet
+    HIJACK_NAMES="$HIJACK_NAMES $t"
+    if nft list table "$fam" "$t" >/dev/null 2>&1; then
+        nft delete table "$fam" "$t" 2>/dev/null && log "已删除 nft 表：$fam $t"
     fi
 done
 /etc/init.d/dnsmasq restart >/dev/null 2>&1 && log "dnsmasq 已重启（内网 DNS 回到直连解析）"
@@ -154,6 +162,16 @@ core_up && log "$CORE_PROC 已就绪" || log "!! 30 秒内核心未就绪"
 section "4. 加载自建 nft 表（DNS 劫持 / QUIC 拦截 / 直连分流）"
 for t in $NFT_TABLES; do
     [ -z "$t" ] && continue
+    case " $HIJACK_NAMES " in
+        *" $t "*)
+            # 与 rc.local 同口径：DNS 端口没起来就不装劫持表，否则内网
+            # 解析全部指向无人监听的端口，反而复现「连上却没网」。
+            if ! dns_up; then
+                log "!! :$DNS_PORT 未监听，跳过 DNS 劫持表 $t（保持直连）"
+                continue
+            fi
+            ;;
+    esac
     if [ -f "$NFT_DIR/$t.nft" ]; then
         nft -f "$NFT_DIR/$t.nft" >/dev/null 2>&1 && log "已加载 inet $t" || log "!! inet $t 加载失败"
     else
@@ -167,13 +185,21 @@ section "4.1 重载 fw4 防火墙（start.sh 可能把它留在半加载状态�
 /etc/init.d/firewall restart 2>&1 | tail -5 | tee -a "$LOG"
 sleep 3
 log "-- WAN 口地址与默认路由 --"
-ip -brief addr show 2>/dev/null | grep -E 'wan|br-lan' | tee -a "$LOG"
+# BusyBox 的 ip 不一定有 -brief，先探测再用。
+wan_addrs() {
+    if ip -brief addr show >/dev/null 2>&1; then
+        ip -brief addr show 2>/dev/null | grep -E 'wan|br-lan'
+    else
+        ip -4 addr show 2>/dev/null | grep -E 'wan|br-lan|inet '
+    fi
+}
+wan_addrs | tee -a "$LOG"
 ip route show default 2>/dev/null | tee -a "$LOG"
-if ! ip -brief addr show 2>/dev/null | grep -q 'wan'; then
+if ! wan_addrs | grep -q 'wan'; then
     log "!! WAN 口没有地址，尝试 ifup wan"
     ifup wan 2>&1 | tail -5 | tee -a "$LOG"
     sleep 5
-    ip -brief addr show 2>/dev/null | grep -E 'wan|br-lan' | tee -a "$LOG"
+    wan_addrs | tee -a "$LOG"
 fi
 if ! ip route show default 2>/dev/null | grep -q .; then
     log "!! 没有默认路由，尝试 ifup wan"
@@ -202,7 +228,7 @@ fi
 
 section "6. 校验"
 run pidof "$CORE_PROC"
-log "$MIXED_PORT=$(netstat -lntp 2>/dev/null | grep -c ":$MIXED_PORT")  $DNS_PORT=$(netstat -lntp 2>/dev/null | grep -c ":$DNS_PORT")  $CTRL_PORT=$(netstat -lntp 2>/dev/null | grep -c ":$CTRL_PORT")"
+log "$MIXED_PORT=$(port_count "$MIXED_PORT")  $DNS_PORT=$(port_count "$DNS_PORT")  $CTRL_PORT=$(port_count "$CTRL_PORT")"
 run nft list tables
 if [ -s "$RUNTIME_DIR/config.yaml" ]; then
     log "运行态 config.yaml = $(wc -c < "$RUNTIME_DIR/config.yaml") bytes"

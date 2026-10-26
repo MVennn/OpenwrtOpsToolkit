@@ -27,7 +27,7 @@ DEFAULT_RESOLVERS = ["119.29.29.29", "114.114.114.114", "223.5.5.5", "1.1.1.1"]
 USAGE = """用法: python qq_cdn_probe.py [dns|probe|all]
 
   dns    只比各 DNS 服务器的解析结果
-  probe  用系统 DNS 解析后逐 IP 试 TCP/TLS/HTTP
+  probe  用 223.5.5.5 解析后逐 IP 试 TCP/TLS/HTTP
   all    两段都跑（默认）
 """
 
@@ -92,9 +92,16 @@ def resolve(host, server=None, timeout=4.0):
             if (n & 0xC0) == 0xC0:
                 i += 2
             else:
-                while i < len(data) and data[i] != 0:
+                # 应答名允许「若干标签 + 压缩指针」，遇到指针同样只跳 2 字节，
+                # 否则会把 0xC0 当标签长度，后续记录全部错位。
+                while i < len(data):
+                    if (data[i] & 0xC0) == 0xC0:
+                        i += 2
+                        break
+                    if data[i] == 0:
+                        i += 1
+                        break
                     i += 1 + data[i]
-                i += 1
             if i + 10 > len(data):
                 break
             rtype = int.from_bytes(data[i:i+2], "big")
@@ -122,7 +129,14 @@ def probe(host, ip, port=443):
     try:
         s.settimeout(6)
         ss = ctx.wrap_socket(s, server_hostname=host)
-        t2 = time.time()
+    except Exception as e:
+        try:
+            s.close()
+        except Exception:
+            pass
+        return {"ip": ip, "tcp": round(t1-t0, 3), "tls": None, "http": None, "err": "TLS " + type(e).__name__}
+    t2 = time.time()
+    try:
         req = f"GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
         ss.sendall(req.encode())
         # 单次 recv(200) 常常拿不到完整状态行（响应头普遍超过 200 字节），
@@ -141,7 +155,13 @@ def probe(host, ip, port=443):
         return {"ip": ip, "tcp": round(t1-t0, 3), "tls": round(t2-t1, 3),
                 "http": round(t3-t2, 3), "status": line, "err": None}
     except Exception as e:
-        return {"ip": ip, "tcp": round(t1-t0, 3), "tls": None, "http": None, "err": "TLS " + type(e).__name__}
+        # 握手已成功，问题出在 HTTP 阶段；不要笼统报成 TLS 失败。
+        try:
+            ss.close()
+        except Exception:
+            pass
+        return {"ip": ip, "tcp": round(t1-t0, 3), "tls": round(t2-t1, 3),
+                "http": None, "err": "HTTP " + type(e).__name__}
 
 
 def main():
@@ -162,7 +182,7 @@ def main():
             print(f"{h:22s} " + " | ".join(row))
 
     if mode in ("probe", "all"):
-        print("\n=== 连接探测 (系统 DNS 解析后逐 IP 试) ===")
+        print("\n=== 连接探测 (223.5.5.5 解析后逐 IP 试) ===")
         for h in hosts:
             ips = [ip for ip in resolve(h, "223.5.5.5") if not ip.startswith(("ERR", "NODATA"))]
             if not ips:

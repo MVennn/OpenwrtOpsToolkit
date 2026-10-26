@@ -13,7 +13,7 @@
 `MIHOMO_HOST` / `MIHOMO_PORT`、`MIHOMO_SECRET`（必填）。
 脚本会临时把 log-level 调到 debug，结束时恢复成 info。
 """
-import json, os, socket, sys, threading, time
+import json, os, re, socket, sys, threading, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mihomo"))
 from mihomo_api import api, dns_query, open_socket, host_header, auth_header
 
@@ -69,11 +69,15 @@ def stream_logs():
 
 
 def classify(domain, mark):
-    """在日志里找该域名的上游选择行。"""
+    """在日志里找该域名的上游选择行。
+
+    匹配必须锚定完整域名：日志是累计的，用裸子串会让 qq.com 命中
+    im.qq.com 的行、qlogo.cn 命中 thirdwx.qlogo.cn 的行，父域结论被污染。
+    """
     with lock:
         cur = list(lines)
-    hits = [p for p in cur if domain in p and "from https://" in p or (domain in p and "from udp://" in p)]
-    hits = [p for p in hits if domain in p]
+    pat = re.compile(r"(?<![A-Za-z0-9.-])" + re.escape(domain) + r"(?![A-Za-z0-9.-])")
+    hits = [p for p in cur if pat.search(p) and ("from https://" in p or "from udp://" in p)]
     if not hits:
         return "未知(无日志/命中缓存)"
     used = set()

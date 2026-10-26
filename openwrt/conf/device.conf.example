@@ -123,3 +123,10 @@ ROUTER_HEALTH_DIR=/etc/router-health
 #BULK_LOG=/tmp/ShellCrash/bulk-guard.log
 # 旧名，仍兼容；等价于 BULK_RETURN_COOLDOWN
 #BULK_COOLDOWN=1200
+
+# ---------------------------------------------------------------------------
+# post-sc-update.sh：ShellCrash 官方更新后要恢复哪些本地补丁
+# 格式："相对CRASHDIR的路径=标记1,标记2"（空格分隔多组；标记之间是「与」关系）
+# 标记不能含空格（解析按空白切分）。
+# ---------------------------------------------------------------------------
+#PATCH_SPEC="starts/clash_modify.sh=rules-mid.sh,reorder-groups.sh starts/fw_nftables.sh=QUIC_BLOCK_MARKER starts/start_legacy_wd.sh=pidof"

@@ -196,8 +196,8 @@ if [ -s "$RCFG" ]; then
   if [ -x "$CORE_BIN" ]; then
     "$CORE_BIN" -t -d "$CRASHDIR" -f "$RCFG" 2>&1 | tail -3 | tee -a "$LOG"
   fi
-  log "分组数：$(grep -c '^  - name:' "$RCFG")"
-  log "规则数：$(grep -c '^  - ' "$RCFG")"
+  log "分组数：$(awk '/^proxy-groups:/{f=1;next} /^[a-z-]+:/{f=0} f&&/^  - name:/{n++} END{print n+0}' "$RCFG")"
+  log "规则数：$(awk '/^rules:/{f=1;next} /^[a-z-]+:/{f=0} f&&/^  - /{n++} END{print n+0}' "$RCFG")"
   if [ -n "$CHECK_GROUP" ]; then
     grep -Fq "$CHECK_GROUP" "$RCFG" && log "自定义组 $CHECK_GROUP：OK" || log "!! 自定义组 $CHECK_GROUP 缺失"
   fi

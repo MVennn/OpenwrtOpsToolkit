@@ -7,7 +7,43 @@
 
 ---
 
-## [未发布] — 2026-10-24
+## [0.2.1] — 2026-10-26
+
+### 全仓审查修复（2026-10-26）
+
+- 修复 `openwrt/recover-now.sh` 的 DNS 劫持表解析 —— `DNS_HIJACK_TABLES` 原本是
+  `inet googleroute inet shellcrash ...` 的空格串，循环把每个词当独立表名；
+  `nft list table googleroute` 缺 family 时默认查 ip 族，而表是 inet 族，
+  永远删不掉，「先摘 DNS 劫持」这步等于没做。改为 `family:表名` 并真正按对解析
+  （PITFALLS P40）
+- 修复 同一脚本的 WAN 诊断 —— `ip -brief addr` 在 BusyBox 上不可用，错误被
+  `2>/dev/null` 吞掉后误报「WAN 没地址」并触发 `ifup wan`；改为先探测能力再兜底
+  `ip -4 addr`（PITFALLS P41）
+- 修复 端口就绪判断 —— `netstat | grep ":$PORT"` 是子串匹配，1053 会命中 10530-10539；
+  改为 `[:.]$PORT[[:space:]]`
+- 修复 `openwrt/guardian.sh` 健康探测 —— 只看 `%{time_total}`，节点被封时的
+  「快速失败」被判健康；改为同时看 `%{http_code}`，非 2xx/3xx 按劣化处理
+- 修复 两个守卫的 URL / JSON 转义 —— 节点名含 `"` `\` `%` `#` `?` 时切组请求失败；
+  `enc()` 补 `%`/`#`/`?`/`&`，`put()` 对名字做最小 JSON 转义
+- 修复 两个守卫的 secret 读取 —— 读不到 secret 时静默失效（全部 401 被当成
+  「组不存在」跳过）；启动时显式 `ERROR` 告警
+- 修复 `openwrt/post-sc-update.sh` 的验收统计 —— 「分组数」把 proxies 条目也算进去、
+  「规则数」统计所有顶层列表项；改用 awk 按 `proxy-groups:` / `rules:` 段定界
+- 修复 `mihomo/mihomo_api.py` —— `/rules` 返回 `{"rules":[...]}` 未解包，
+  `rulestats` 对 dict 切片必崩、`summary` 误报 total=1
+- 修复 `mihomo/rule_audit.py` —— proxies.json 缺失时 `eg="?"` 恒判通过（假绿灯）；
+  `?` 不再算通过，报告头部声明模拟范围
+- 修复 `cdn/qq_domain_classify.py` —— 全量累积日志里用子串匹配，父域/兄弟域互相污染；
+  改为锚定完整域名
+- 修复 `cdn/qq_cdn_probe.py` —— DNS 应答名的「标签+压缩指针」编码未处理（后续记录错位）；
+  TLS 之后的 HTTP 异常误标为 TLS
+- 修复 `tools/check-secrets.py` —— 本机路径豁免是整行的；改为只豁免命中片段，
+  git 失败时不再打假绿
+- 文档 —— `openwrt/conf/device.conf.example` 补 `PATCH_SPEC` 说明（post-sc-update
+  恢复哪些补丁、标记不能含空格）
+- 验证 —— 全量 `sh -n` ✓、`py_compile` ✓、`check-secrets.py` ✓；
+  `bulk-guard.sh` / `post-sc-update.sh` 部署后 `ash -n` ✓、md5 与仓库一致，
+  `post-sc-update.sh check` 三处标记全部 OK，`bulk-guard --dry-run` rc=0
 
 ### 大流量守卫体检修正（2026-10-24）
 

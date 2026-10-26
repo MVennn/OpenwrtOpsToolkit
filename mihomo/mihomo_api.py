@@ -174,6 +174,13 @@ USAGE = """用法: python mihomo_api.py <子命令> [参数...]
 """
 
 
+def rules_list(payload):
+    """mihomo 的 /rules 返回 {"rules": [...]}；兼容裸列表。"""
+    if isinstance(payload, dict):
+        return payload.get("rules") or []
+    return payload if isinstance(payload, list) else []
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
@@ -186,7 +193,7 @@ def main():
         for k in ("mode", "ipv6", "log-level", "mixed-port", "port", "redir-port", "tproxy-port"):
             if isinstance(cfg, dict):
                 print(f"  {k}: {cfg.get(k)}")
-        rules = api("/rules")
+        rules = rules_list(api("/rules"))
         print("rules total:", len(rules))
         for r in rules:
             if not isinstance(r, dict):
@@ -207,7 +214,7 @@ def main():
             except Exception as e:
                 print(f"{g:24s} -> ERR {e}")
     elif cmd == "rulestats":
-        rules = api("/rules", timeout=90, tries=20)
+        rules = rules_list(api("/rules", timeout=90, tries=20))
         print("rules total:", len(rules))
         from collections import Counter
         c = Counter((r.get("type") if isinstance(r, dict) else "?") for r in rules)

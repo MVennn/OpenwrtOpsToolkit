@@ -149,7 +149,9 @@ log() {
     *FIX*|*ALERT*|*ERROR*|*WARN*) logger -t bulk-guard -p daemon.warn "$*" 2>/dev/null ;;
   esac
 }
-enc() { echo "$1" | sed 's/ /%20/g'; }
+enc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g'; }
+json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+[ -z "$API_SECRET" ] && log "ERROR: 未从 $API_CFG 读到 secret，本轮控制 API 动作将全部失效"
 
 api_get() { $CURL -s -m 5 -H "$AUTH" "$CTRL$1" 2>/dev/null; }
 
@@ -169,7 +171,7 @@ put() {
   fi
   $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" \
     -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$2\"}" 2>/dev/null
+    -d "{\"name\":\"$(json_esc "$2")\"}" 2>/dev/null
 }
 
 # ---- 状态文件：last_probe / cooldown_until / last_moving / fails -------------

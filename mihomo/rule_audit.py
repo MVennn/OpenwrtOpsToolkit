@@ -389,7 +389,8 @@ for host, expected in TESTS:
     elif expected == "cn":
         ok = eg == "DIRECT"
     else:  # proxy / google_svc / media
-        ok = eg not in ("DIRECT", "REJECT") and target != AD_GROUP
+        # "?" = 组状态数据缺失（proxies.json 没拍/没这个组），不能当通过。
+        ok = eg not in ("DIRECT", "REJECT", "?") and target != AD_GROUP
     test_rows.append({"host": host, "expected": expected, "pos": pos, "rule": f'{r["type"]},{r["value"]}' if r else "?", "target": target, "egress": eg, "section": sec_of(pos) if pos is not None else "?", "ok": ok})
 
 # ---------- 广告审计 ----------
@@ -512,6 +513,9 @@ else:
     L.append("- 未检测到 RULE-SET,cn，或未提供 geosite:cn 文本列表（第 5 个参数）。")
 
 L.append("\n## 6. 代表性域名归类\n")
+if not proxies:
+    L.append("> ⚠ proxies.json 缺失或为空：所有「实际出口」记为 `?`，出口类判定不可信。\n")
+L.append("> 遮蔽模拟范围：DOMAIN*/KEYWORD/RULE-SET,cn；其余 RULE-SET、GEOSITE、IP-CIDR、PROCESS 未建模。\n")
 rows = []
 for t in test_rows:
     flag = "" if t["ok"] else "⚠"

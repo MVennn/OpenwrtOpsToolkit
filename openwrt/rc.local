@@ -105,11 +105,11 @@ if [ -z "$DNS_PENDING" ]; then
 else
   i=0
   while [ "$i" -lt "$DNS_WAIT_LOOPS" ]; do
-    netstat -lntp 2>/dev/null | grep -q ":$DNS_PORT" && break
+    netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]" && break
     sleep 2
     i=$((i + 1))
   done
-  if netstat -lntp 2>/dev/null | grep -q ":$DNS_PORT"; then
+  if netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]"; then
     for t in $DNS_PENDING; do
       load_nft_table "$t"
     done
