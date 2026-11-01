@@ -9,6 +9,33 @@
 
 ## [未发布]
 
+### 闪存降频：统计落盘攒批（2026-11-01）
+
+- 优化 `openwrt/traffic-stats.sh` 写盘节拍 —— 旧版只要有增量就**每分钟全量重写**
+  当日 tsv（overlay 上一天最多 1440 次读改写，是本仓路由器侧最大的闪存磨损点）；
+  改为差值先攒进 `/tmp` 的当日缓冲（tmpfs），默认每 `STATS_FLUSH_MIN=10` 分钟
+  聚合落盘一次（一天 ≤144 次；`0` 可退回逐分钟），**tsv 格式与聚合口径不变**，
+  采样 / 种子 / 差值逻辑一行未动
+- 落盘节拍记在 `$RUNTIME_DIR/traffic-stats.buf.ts`（锚点在首个差值进缓冲时起算，
+  flush 后刷新）—— 不能拿缓冲文件 mtime 当锚点：它每分钟被追加刷新，永远
+  「刚写过」，间隔永远等不到（沙箱实测踩到，T7b 断言覆盖）
+- 重启丢数据的窗口从 ≤1 分钟变为 ≤1 个落盘间隔（缓冲在 tmpfs）——
+  对「大流量归因」无感，已写进脚本头注释与 TROUBLESHOOTING §16 已知偏差
+- 修 `docs/TROUBLESHOOTING.md` §16 第 3 步命令 —— `cut -d= -f2 || echo 9999`
+  在 `device.conf` 没配 `CTRL_PORT` 时不触发（cut 空输入退出码 0），端口拼空；
+  改为先取值再 `${port:-9999}`（2026-11-01 真机复现）；§16 补「cron 行被
+  ShellCrash 重写冲掉」与「聚合落盘间隔」两条实测原因
+- 修 `docs/ARCHITECTURE.md` §4.1 总览矩阵 —— 「写流量统计与采样状态」的 ✅
+  原来错位在 post-sc-update 列，挪回 traffic-stats 列
+- 沙箱验证 —— 路由器 `/tmp` 新旧版对照 29 项断言全绿：首见记种子（旧版首见
+  虚高 100/200 复现，差值即本轮修复点）、缓冲/锚点/自动落盘（FLUSH_MIN=1
+  实测 60 秒到点落盘）、跨天缓冲各归各的日期、`--report`、缺 secret 的
+  stderr、幂等复跑、终态 state 新旧一致
+- 部署 —— `/etc/ShellCrash/traffic-stats.sh` md5 `703ecbc0…` 与仓库一致；
+  **补回 cron 行** `* * * * * /bin/ash /etc/ShellCrash/traffic-stats.sh`（上轮部署后
+  于 10-31 12:36 被 ShellCrash 重写 crontab 冲掉，stats 停更至今；本轮按
+  TROUBLESHOOTING §16 第 4 步补回），真机采样 / 落盘 / `--report` 全部通过
+
 ### 新增 `traffic-stats.sh`：按「策略组 + 域名」记流量（2026-10-30）
 
 - 新脚本 `openwrt/traffic-stats.sh`（cron `* * * * *`）：采样 mihomo `/connections`，

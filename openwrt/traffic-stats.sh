@@ -15,6 +15,10 @@
 #
 # 输出：
 #   /etc/ShellCrash/stats/YYYY-MM-DD.tsv   每行：策略组<TAB>域名<TAB>上行<TAB>下行
+#     —— 差值先攒在 /tmp 的当日缓冲，每 STATS_FLUSH_MIN 分钟（默认 10）才
+#     聚合落盘一次（闪存降频：旧版每分钟全量重写当日文件，一天最多 1440 次写；
+#     攒批后一天 ≤144 次，文件格式与口径不变）。重启最多丢最后一个间隔内的
+#     增量（缓冲在 tmpfs；对「大流量归因」无感，总量仍以 nlbwmon 为准）。
 #   /tmp/ShellCrash/traffic-stats.state    连接 id → 上次字节（tmpfs，重启重建）
 #
 # 已知偏差：两次采样之间**开完就关**的短连接会被漏掉（列表里已没有它），
@@ -72,6 +76,9 @@ CTRL_PORT="${CTRL_PORT:-9999}"
 API_CFG="${API_CFG:-$CRASHDIR/configs/ShellCrash.cfg}"
 STATS_DIR="$CRASHDIR/stats"
 STATE="$TMPDIR/traffic-stats.state"
+# 当日差值的落盘缓冲（tmpfs）：按日期分文件（traffic-stats.buf.YYYY-MM-DD），
+# 攒到 STATS_FLUSH_MIN 分钟才聚合进 $STATS_DIR 的当日 tsv —— 闪存降频用。
+BUF="$TMPDIR/traffic-stats.buf"
 CFG="$TMPDIR/config.yaml"
 API="http://$CTRL_HOST:$CTRL_PORT/connections"
 
@@ -138,7 +145,8 @@ END {
 	}
 }' "$sample" >"$rows" 2>/dev/null
 
-# 增量：新样本 − 旧状态（按 id），差值落当日文件，同时刷新状态。
+# 增量：新样本 − 旧状态（按 id），差值先进 /tmp 缓冲，落盘间隔到了才合并进当日
+# 文件，同时刷新状态。
 # 状态文件首次运行不存在 —— 先创建成空文件；判别「哪个是旧状态」用 FILENAME
 # 而不是 FNR==NR：旧状态为空时 FNR==NR 对两个文件都成立，会把新样本全当成
 # 旧状态跳过（状态就永远建不出来）。
@@ -159,12 +167,48 @@ awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="
 		print id, host, grp, up, dn >newstate
 	}' "$STATE" "$rows" 2>/dev/null
 
-[ -s "$STATE.delta" ] && {
-	# 就地汇总进当日文件（按「策略组 + 域名」求和），不追加原始行：
-	# 每分钟 10–30 行、一天 1440 次会把 overlay 撑到几十 MB，
-	# 汇总后每台设备每天只有一两百行、两三百 KB。
-	today="$STATS_DIR/$(date +%Y-%m-%d).tsv"
+# 差值先追加进 /tmp 的当日缓冲（tmpfs，不磨闪存），到落盘间隔才聚合进当日
+# tsv（见下方 FLUSH_MIN）。缓冲按日期分文件：差值记到采样当天，跨天落盘时
+# 各归各的日期 —— 与旧版逐分钟按 date +%F 归档的口径一致。
+NOW_TS=$(date +%s)
+BUF_OK=1
+if [ -s "$STATE.delta" ]; then
+	cat "$STATE.delta" >>"$BUF.$(date +%Y-%m-%d)" 2>/dev/null || BUF_OK=0
+	# 落盘节拍的锚点在首个差值进缓冲时起算（只写一次；flush 后由落盘段刷新）
+	[ -f "$BUF.ts" ] || echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
+fi
+# 状态在缓冲写成功后才推进：/tmp 写失败（tmpfs 满）时本轮差值不丢，
+# 下一轮按旧状态重新算出同样的差值（与旧版 awk >delta 失败即中断等价）；
+# 本轮没有差值时状态照常推进（连接集合每轮都可能变）。
+[ "$BUF_OK" = "1" ] && [ -s "$STATE.new" ] && mv -f "$STATE.new" "$STATE"
+
+# ---- 落盘：缓冲攒够 STATS_FLUSH_MIN 分钟才合并进 $STATS_DIR 的当日 tsv ----
+# 闪存账：旧版只要有增量就每分钟全量重写当日文件（一天最多 1440 次读改写）；
+# 攒批后一天 ≤144 次（默认 10 分钟一 flush），tsv 格式与聚合口径完全不变。
+# 落盘节拍记在 $BUF.ts（tmpfs，上次 flush 的 epoch 秒）—— 不能拿缓冲文件的
+# mtime 当锚点：它每分钟都被追加刷新，永远「刚写过」，就永远等不到间隔了。
+# STATS_FLUSH_MIN=0 可退回逐分钟落盘（每轮必 flush，等同旧版行为）。
+FLUSH_MIN="${STATS_FLUSH_MIN:-10}"
+case "$FLUSH_MIN" in ''|*[!0-9]*) FLUSH_MIN=10 ;; esac
+LM=0
+if [ -f "$BUF.ts" ]; then
+	LM=$(cat "$BUF.ts" 2>/dev/null)
+	case "$LM" in ''|*[!0-9]*) LM=0 ;; esac
+fi
+[ "$LM" -gt 0 ] || LM=$NOW_TS	# 首轮（或重启后）从现在起算窗口
+FLUSHED=0
+for b in "$BUF".*; do
+	[ -f "$b" ] || continue
+	d=${b#"$BUF".}
+	case "$d" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) continue ;; esac
+	# 当日缓冲到间隔才落盘；非当日（跨天残留）本轮立即落盘，各归各的日期
+	if [ "$d" = "$(date +%Y-%m-%d)" ] && [ $((NOW_TS - LM)) -lt $((FLUSH_MIN * 60)) ]; then
+		continue
+	fi
+	today="$STATS_DIR/$d.tsv"
 	if [ -f "$today" ]; then
+		# 就地汇总（按「策略组 + 域名」求和），不追加原始行：汇总后每台
+		# 设备每天只有一两百行、两三百 KB（tmp+mv 原子覆盖）。
 		awk -F'\t' -v OFS='\t' -v oldfile="$today" '
 			FILENAME == oldfile { u[$1 SUBSEP $2] += $3; d[$1 SUBSEP $2] += $4; next }
 			{ u[$1 SUBSEP $2] += $3; d[$1 SUBSEP $2] += $4 }
@@ -173,12 +217,26 @@ awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="
 					split(k, p, SUBSEP)
 					print p[1], p[2], u[k], d[k]
 				}
-			}' "$today" "$STATE.delta" >"$today.new" && mv -f "$today.new" "$today"
+			}' "$today" "$b" >"$today.new" && mv -f "$today.new" "$today"
 	else
-		mv -f "$STATE.delta" "$today"
+		# 当日首个 flush：直接聚合缓冲本身（不给「当日文件是原始行」留窗口，
+		# 保持旧版「tsv 任何时刻都是聚合后的」这一形态）
+		awk -F'\t' -v OFS='\t' '
+			{ u[$1 SUBSEP $2] += $3; d[$1 SUBSEP $2] += $4 }
+			END {
+				for (k in u) {
+					split(k, p, SUBSEP)
+					print p[1], p[2], u[k], d[k]
+				}
+			}' "$b" >"$today.new" && mv -f "$today.new" "$today"
 	fi
-}
-[ -s "$STATE.new" ] && mv -f "$STATE.new" "$STATE"
+	rm -f "$b" 2>/dev/null
+	FLUSHED=1
+done
+[ "$FLUSHED" = "1" ] && echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
 
 # 只留 31 天，避免 overlay 无限增长。
 find "$STATS_DIR" -name '*.tsv' -mtime +31 -delete 2>/dev/null
+# 旧版以 find 的 rc=0 收尾；这里显式 exit 0，保证非落盘轮（上面的 && 链为假）
+# 也不会把 rc=1 泄漏给 cron。
+exit 0

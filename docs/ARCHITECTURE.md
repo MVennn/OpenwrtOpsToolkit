@@ -236,7 +236,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | 删 `/tmp` 临时大文件 | ✅ §6 | — | — | ❌ | ❌ | ❌ |
 | 动网络接口（`ifup`） | ❌ | — | — | ✅ §4.1 | ❌ | ❌ |
 | 写日志 | ✅ | ✅ | — | ✅ | ✅（syslog） | ✅ |
-| 写流量统计与采样状态（`$CRASHDIR/stats/` 与 `$RUNTIME_DIR`） | — | — | — | — | — | ✅ |
+| 写流量统计与采样状态（`$CRASHDIR/stats/` 与 `$RUNTIME_DIR`） | — | — | ✅ | — | — | — |
 | **重启设备** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
 | **改订阅 / 规则源文件** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
 | **改 UCI（`/etc/config/*`）** | ❌ | ❌ | — | ❌ | ❌ | ❌ |

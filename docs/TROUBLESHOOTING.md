@@ -770,6 +770,9 @@
    ls -l /etc/ShellCrash/stats/ && tail -5 "/etc/ShellCrash/stats/$(date +%Y-%m-%d).tsv"
    ```
 
+   注意：当日 tsv 是**聚合落盘**的 —— 差值先攒在 `/tmp` 缓冲，默认每 10 分钟
+   （`STATS_FLUSH_MIN`）才合并一次，刚发生的流量要等一个间隔才进文件，属正常。
+
 2. **手动采样一次**（secret 读不到会打一行 stderr 提示）：
 
    ```sh
@@ -781,9 +784,14 @@
    下面这条应返回含 `"connections"` 的 JSON：
 
    ```sh
+   port=$(grep -oE '^CTRL_PORT=[0-9]+' /etc/openwrt-ops/device.conf 2>/dev/null | cut -d= -f2)
    curl -s -H "Authorization: Bearer $(sed -n 's/^secret=//p' /etc/ShellCrash/configs/ShellCrash.cfg)" \
-     "http://127.0.0.1:$(grep -oE '^CTRL_PORT=[0-9]+' /etc/openwrt-ops/device.conf 2>/dev/null | cut -d= -f2 || echo 9999)/connections" | head -c 200
+     "http://127.0.0.1:${port:-9999}/connections" | head -c 200
    ```
+
+   > 别把回退写成 `cut -d= -f2 || echo 9999`：`device.conf` 没配 `CTRL_PORT` 时
+   > grep 无输出但 `cut` 退出码是 0，`||` 不触发，端口会拼成空 —— 这正是本条
+   > 最初版命令的真实 bug（2026-11-01 真机复现）。
 
 4. **cron 在不在**：`grep traffic-stats /etc/crontabs/root` 应有 `* * * * *` 一行。
 
@@ -792,7 +800,11 @@
 - **完全没数据**：核心没起、端口不对（`device.conf` 的 `CTRL_PORT` 与实际不一致）
   或 secret 不匹配 —— 401 的响应体里没有 `"connections"`，脚本静默退出（cron 场景
   不制造噪声）。按第 3 步核对。
+- **cron 行凭空消失**：ShellCrash 更新 / `start.sh stop` 会重写 crontab，第三方行
+  会被冲掉（2026-10-31 实测丢过一次，stats 从当天 12:36 起停更）。按第 4 步把行
+  补回即可，不用重装脚本。
 - **数字偏小**：两次采样之间开完就关的短连接被漏掉、新连接首窗不计增量，
-  都是已知偏差（见脚本头部注释）；总量仍以 nlbwmon 为准。
+  都是已知偏差（见脚本头部注释）；重启还会丢最后一个落盘间隔（默认 10 分钟）
+  内的增量（缓冲在 tmpfs）。总量仍以 nlbwmon 为准。
 - **单分钟虚高**：旧版脚本对首见连接按「新值 − 0」计差值 —— 已改为首见只记种子
   （[PITFALLS.md](PITFALLS.md) P42）；升级脚本后删一次 `traffic-stats.state` 重新种子即可。
