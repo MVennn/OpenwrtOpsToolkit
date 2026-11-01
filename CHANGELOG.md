@@ -7,7 +7,17 @@
 
 ---
 
-## [未发布]
+## [0.3.0] — 2026-11-01
+
+### 守卫脚本 bug 奇偶同步（2026-11-01）
+
+- `tools/check-secrets.py` 对齐 ClientTriage `c3a3952` 已修的漏报 ——
+  `re.search` 改 `finditer`（同一行多个命中全查）、`--all` 遵循 `.gitignore`；
+  分叉差异保留，加出处头注释（`0d5be7d`）
+- `tools/check-docs.py` 对齐 ClientTriage `c3a3952` / WindowsRemoteOps
+  `156562c` 已修的四处功能性 bug —— BOM 首锚点、跨盘符 relpath 崩溃、
+  冻结锚点误报、引言块只认头部；分叉差异保留，加出处头注释（`3691820`）
+- 文档脱敏 —— 守卫文档与旧目录示例改占位（`bc054f0` / `ac9ca2b`）
 
 ### 闪存降频：统计落盘攒批（2026-11-01）
 
@@ -74,6 +84,8 @@
   `tools/check-secrets.py`；`docs/TROUBLESHOOTING.md` 补「流量统计不更新」一节
 
 ## [0.2.1] — 2026-10-26
+
+面向用户的说明见 [docs/release-notes/0.2.1.md](docs/release-notes/0.2.1.md)。
 
 ### 全仓审查修复（2026-10-26）
 
