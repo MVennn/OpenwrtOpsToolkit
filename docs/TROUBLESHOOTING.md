@@ -757,3 +757,42 @@
 | 在路由器上 `curl` 境外地址 | 路由器自身流量**不走**透明代理 | 加 `-x http://127.0.0.1:7890` 显式走代理 |
 | 改 `/tmp/ShellCrash/config.yaml` | mihomo 的 `SAFE_PATHS` 会拒；运行态产物本来就是生成的 | 改**源**（规则 / 模板），再重新生成 |
 | `pgrep -f CrashCore` 数实例 | 会匹配到它自己 | `netstat -lntp \| grep -E ':7892\|:9999\|:1053'` |
+
+---
+
+## 16. 流量统计不更新 / 数字不对（traffic-stats.sh）
+
+### 排查步骤
+
+1. **看当日文件在不在、动没动**：
+
+   ```sh
+   ls -l /etc/ShellCrash/stats/ && tail -5 "/etc/ShellCrash/stats/$(date +%Y-%m-%d).tsv"
+   ```
+
+2. **手动采样一次**（secret 读不到会打一行 stderr 提示）：
+
+   ```sh
+   sh /etc/ShellCrash/traffic-stats.sh
+   ```
+
+3. **核对端口与鉴权**：控制 API 地址来自 `device.conf` 的 `CTRL_HOST` / `CTRL_PORT`
+   （默认 `127.0.0.1:9999`），secret 运行时从 `ShellCrash.cfg` 的 `secret=` 行现读。
+   下面这条应返回含 `"connections"` 的 JSON：
+
+   ```sh
+   curl -s -H "Authorization: Bearer $(sed -n 's/^secret=//p' /etc/ShellCrash/configs/ShellCrash.cfg)" \
+     "http://127.0.0.1:$(grep -oE '^CTRL_PORT=[0-9]+' /etc/openwrt-ops/device.conf 2>/dev/null | cut -d= -f2 || echo 9999)/connections" | head -c 200
+   ```
+
+4. **cron 在不在**：`grep traffic-stats /etc/crontabs/root` 应有 `* * * * *` 一行。
+
+### 原因 / 解法
+
+- **完全没数据**：核心没起、端口不对（`device.conf` 的 `CTRL_PORT` 与实际不一致）
+  或 secret 不匹配 —— 401 的响应体里没有 `"connections"`，脚本静默退出（cron 场景
+  不制造噪声）。按第 3 步核对。
+- **数字偏小**：两次采样之间开完就关的短连接被漏掉、新连接首窗不计增量，
+  都是已知偏差（见脚本头部注释）；总量仍以 nlbwmon 为准。
+- **单分钟虚高**：旧版脚本对首见连接按「新值 − 0」计差值 —— 已改为首见只记种子
+  （[PITFALLS.md](PITFALLS.md) P42）；升级脚本后删一次 `traffic-stats.state` 重新种子即可。

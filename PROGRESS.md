@@ -205,3 +205,34 @@ EOF / HTTP 502。旧 `bulk-guard.sh` 的 `node_alive()` 只测 gstatic，钉点/
   04 386、06 180、01 85；02/03 TLS EOF / 503
 
 ## 状态: 已完成
+
+---
+
+# 2026-11-01 增量审查（10-26 之后 4 笔提交 + openwrt/tools 抽查）
+
+## 背景
+- 上轮全量审查止于 263340f（2026-10-26）。本轮增量：3bff539（新增
+  `traffic-stats.sh`，代码）与 ab6a467 / bc054f0 / ac9ca2b（11-01 文档三笔；
+  复核后无遗留敏感串，`git grep SansK` / 本机路径均零命中）。
+
+## 已完成变更
+- [x] 修 `traffic-stats.sh` 不读 `device.conf`（控制 API 与目录写死，违反
+      AGENTS §2「环境变量 → device.conf → 默认值」加载顺序）
+- [x] 修同脚本 secret 来源：运行态 `config.yaml` 的 `secret:` 行改为与
+      guardian / bulk-guard 同源读 `ShellCrash.cfg` 的 `secret=` 行；读不到时
+      stderr 提示一句（cron 丢弃、手跑可见）
+- [x] 修同脚本首见连接计数：按「新值 − 0」计差值 → 首见只记种子
+      （核心重启 / 状态丢失后不再把连接累计字节一次性计入；PITFALLS P42）
+- [x] 加固同脚本 trap：`EXIT` → `EXIT INT TERM HUP`（与两个守卫一致）
+- [x] 文档计数五 → 六：ARCHITECTURE（含 §3.5 键表、§4.1 总览矩阵补
+      `traffic-stats.sh` 列）、UPSTREAM、MAINTENANCE、openwrt/README
+- [x] TOOLS.md 目录树 / 会改表补 `traffic-stats.sh` 与 `tools/check-secrets.py`
+- [x] TROUBLESHOOTING 补 §16「流量统计不更新」；CHANGELOG 补「增量审查修复」段
+
+## 自检
+- `python tools/check-docs.py` ✓（21 篇）；`python tools/check-secrets.py` ✓（59 文件）
+- 6 个 shell（5 个 `.sh` + `rc.local`）`sh -n` ✓；15 个 `.py` `py_compile` ✓；LF 未变
+- 未连设备（红线）；`traffic-stats.sh` 的行为改动待真机回灌后按 TROUBLESHOOTING
+  §16 验证
+
+## 状态: 已完成

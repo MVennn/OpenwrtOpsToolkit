@@ -92,7 +92,7 @@ sh openwrt/guardian.sh --dry-run
 
 - 在 `device.conf` 里配了一个键，但**对应脚本不读它** ⇒ **静默无效**：
   配了不报错、也不生效。
-- 这不是 bug，是「**一个配置文件服务五个脚本**」的必然结果。
+- 这不是 bug，是「**一个配置文件服务六个脚本**」的必然结果。
 - 典型形态：某个键在 A 脚本里是**路径类默认值**、在 B 脚本里是**空**——
   同一行配置对两个脚本的含义完全不同。
 - 还有一类是**声明了但没被任何逻辑读取**的键（历史遗留的开关），
@@ -409,3 +409,4 @@ CI（`.github/workflows/ci.yml`）跑的就是这几样，外加一条明文凭�
 | 2026-10-24 | 大流量守卫体检修正：`pool_health` 以承流节点 now 为准、换钉候选双通 + 钉后复核、停留冷却 600→1200s、连续 2 次探测无效切机场；`device.conf.example` 冷却样例同步 | 已部署路由器 `/etc/ShellCrash/bulk-guard.sh` + `/etc/openwrt-ops/device.conf` 并实跑验证（换钉生效、cron 轮正常）；PITFALLS P37–P39、CHANGELOG 同批 |
 | 2026-10-26 | 全仓审查修复：DNS 劫持表 family 解析、WAN 诊断 BusyBox 兜底、端口边界、守卫探针看状态码、切组 URL/JSON 转义、secret 缺失告警、验收统计、mihomo_api /rules 解包、rule_audit 假绿灯、域名归类锚定、CDN 压缩指针、check-secrets 片段级豁免；`device.conf.example` 补 `PATCH_SPEC` | 已部署 `/etc/ShellCrash/bulk-guard.sh` 与 `post-sc-update.sh`（`check` 模式三处标记 OK、`--dry-run` rc=0、md5 一致）；`/etc/openwrt-ops/device.conf` 补 `PATCH_SPEC`；PITFALLS P40–P41、CHANGELOG 同批 |
 | 2026-11-01 | 收尾大扫除：按 §2.2「仓内不留运行产物」清 `cdn/` `mihomo/` `tools/` 三处 `__pycache__`（15 个 `.pyc`，共 183,369 字节 ≈ 179 KB）与空的 `.work/`（含空 `.work/tmp/`）；删的均是被 ignore 的本地产物，git 不留痕 | `check-docs.py` ✓（21 篇）、`check-secrets.py` ✓（59 文件）、5 个 `.sh` 的 `sh -n` ✓（`git ls-files --eol` 确认索引与工作树均 LF）、`*.py` ast.parse ✓。红线未动：`openwrt/conf/device.conf.example`（要入库的样例）；`openwrt/conf/device.conf` 本机不存在，符合 §5.3 的 `test ! -e` 自检 |
+| 2026-11-01 | 增量审查修复：`traffic-stats.sh` 补 device.conf 加载（`CTRL_HOST` / `CTRL_PORT` / `CRASHDIR` / `RUNTIME_DIR` / `API_CFG` 可配，secret 改与 guardian / bulk-guard 同源读 `ShellCrash.cfg`）、首见连接改记种子（核心重启后不再把连接累计字节一次性计入，PITFALLS P42）、trap 补 `INT` / `TERM` / `HUP`；文档计数五 → 六（ARCHITECTURE / UPSTREAM / MAINTENANCE / openwrt/README），ARCHITECTURE §3.5 键表与 §4.1 矩阵补列，TOOLS.md 目录树与会改表补 `traffic-stats.sh` 与 `check-secrets.py`，TROUBLESHOOTING 补 §16 | `check-docs.py` ✓（21 篇）、`check-secrets.py` ✓（59 文件）、6 个 shell（含 `rc.local`）`sh -n` ✓、15 个 `.py` `py_compile` ✓、LF 未变（`git ls-files --eol`）。红线未动：`openwrt/conf/device.conf.example`；`openwrt/conf/device.conf` 本机不存在，符合 §5.3 自检。未连设备，真机回灌待下批 |

@@ -25,6 +25,27 @@
 - 已知偏差：两次采样之间开完就关的短连接会漏掉（偏低估小请求），
   总量仍以 nlbwmon 为准
 
+### 增量审查修复（2026-11-01）
+
+- 修复 `openwrt/traffic-stats.sh` 不读 `device.conf` —— 控制 API 写死
+  `127.0.0.1:9999`、目录写死 `/etc/ShellCrash`，违反「环境变量 → device.conf →
+  内置默认值」的加载顺序（AGENTS §2）；补齐与其余脚本同一段配置加载，
+  `CTRL_HOST` / `CTRL_PORT` / `CRASHDIR` / `RUNTIME_DIR` / `API_CFG` 可配
+- 修复 同脚本的 secret 来源 —— 原从运行态 `config.yaml` 的 `secret:` 行提取
+  （值里带单引号时会带着引号去鉴权）；改为与 guardian / bulk-guard 同源读
+  `ShellCrash.cfg` 的 `secret=` 行（对齐 ARCHITECTURE §4.7「secret 一律现读」的
+  口径），读不到时向 stderr 提示一句
+- 修复 同脚本的首见连接计数 —— `/connections` 的字节是连接累计值，原实现对
+  首见连接按「新值 − 0」计差值，核心重启 / 状态丢失后会把连接建立以来的字节
+  一次性计入；改为首见只记「种子」，从下一次采样起计增量（PITFALLS P42）
+- 加固 同脚本 trap 补 `INT` / `TERM` / `HUP`（与两个守卫一致）：被杀时也清
+  `.delta` / `.new` 残留，避免下一轮把残留差值重复计入当日文件
+- 文档 —— 10-30 新增脚本后没跟上的现役事实对齐：脚本计数五 → 六
+  （`docs/ARCHITECTURE.md`、`docs/UPSTREAM.md`、`docs/MAINTENANCE.md`、
+  `openwrt/README.md`）；`docs/ARCHITECTURE.md` §3.5 键表与 §4.1 总览矩阵补
+  `traffic-stats.sh` 列；`docs/TOOLS.md` 目录树 / 会改表补 `traffic-stats.sh` 与
+  `tools/check-secrets.py`；`docs/TROUBLESHOOTING.md` 补「流量统计不更新」一节
+
 ## [0.2.1] — 2026-10-26
 
 ### 全仓审查修复（2026-10-26）

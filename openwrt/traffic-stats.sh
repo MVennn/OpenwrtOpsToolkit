@@ -18,22 +18,65 @@
 #   /tmp/ShellCrash/traffic-stats.state    连接 id → 上次字节（tmpfs，重启重建）
 #
 # 已知偏差：两次采样之间**开完就关**的短连接会被漏掉（列表里已没有它），
-#   所以小请求偏低估；对「大流量归因」足够准。总量以 nlbwmon 为准。
+#   所以小请求偏低估；新出现的连接先记「种子」不计差值，从下一次采样起才计，
+#   免得把连接建立以来的累计字节一次性计入（核心重启 / 状态丢失后不虚高）。
+#   对「大流量归因」足够准。总量以 nlbwmon 为准。
+#
+# 配置：走 conf/device.conf（或同名环境变量）—— CRASHDIR / RUNTIME_DIR /
+#   CTRL_HOST / CTRL_PORT / API_CFG；secret 运行时从 API_CFG 现读，脚本不存任何值。
 #
 # 用法：
 #   sh traffic-stats.sh            # 采样一次（cron 每分钟）
 #   sh traffic-stats.sh --report   # 打印按策略组 / 按域名的累计
 # ============================================================================
 
+# ---------------------------------------------------------------------------
+# 配置加载：环境变量 > device.conf > 本文件里的默认值
+# ---------------------------------------------------------------------------
+OPS_CONF="${DEVICE_CONF:-}"
+if [ -z "$OPS_CONF" ]; then
+	OPS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+	[ -n "$OPS_DIR" ] || OPS_DIR="."
+	for _c in "$OPS_DIR/conf/device.conf" /etc/openwrt-ops/device.conf; do
+		if [ -f "$_c" ]; then OPS_CONF="$_c"; break; fi
+	done
+fi
+
+# 这些变量如果本来就在环境里，优先级高于 device.conf —— 先记住，载入后再还原
+_OPS_VARS="CRASHDIR RUNTIME_DIR CTRL_HOST CTRL_PORT API_CFG"
+_OPS_SNAP=""
+for _v in $_OPS_VARS; do
+	eval "[ \"\${${_v}+set}\" = set ]" || continue
+	eval "_O_SNAP_${_v}=\$(printf '%s' \"\${${_v}-}\")"
+	_OPS_SNAP="$_OPS_SNAP $_v"
+done
+if [ -n "$OPS_CONF" ] && [ -f "$OPS_CONF" ]; then
+	if sh -n "$OPS_CONF" 2>/dev/null; then
+		. "$OPS_CONF" 2>/dev/null
+	else
+		echo "警告：配置文件 $OPS_CONF 语法错误，已忽略（走默认值）" >&2
+	fi
+fi
+for _v in $_OPS_SNAP; do
+	eval "${_v}=\$(printf '%s' \"\${_O_SNAP_${_v}-}\")"
+done
+
+# ---------------------------------------------------------------------------
+# 默认值
+# ---------------------------------------------------------------------------
 CRASHDIR="${CRASHDIR:-/etc/ShellCrash}"
-TMPDIR="${TMPDIR:-/tmp/ShellCrash}"
+# RUNTIME_DIR 是 device.conf 里的正名（其余脚本都用它）；TMPDIR 兼容 ShellCrash 环境
+TMPDIR="${RUNTIME_DIR:-${TMPDIR:-/tmp/ShellCrash}}"
+CTRL_HOST="${CTRL_HOST:-127.0.0.1}"
+CTRL_PORT="${CTRL_PORT:-9999}"
+API_CFG="${API_CFG:-$CRASHDIR/configs/ShellCrash.cfg}"
 STATS_DIR="$CRASHDIR/stats"
 STATE="$TMPDIR/traffic-stats.state"
 CFG="$TMPDIR/config.yaml"
-API="http://127.0.0.1:9999/connections"
+API="http://$CTRL_HOST:$CTRL_PORT/connections"
 
 mkdir -p "$STATS_DIR" "$TMPDIR" 2>/dev/null
-trap 'rm -f "$TMPDIR"/traffic-stats.*.$$ "$STATE.new" "$STATE.delta"' EXIT
+trap 'rm -f "$TMPDIR"/traffic-stats.*.$$ "$STATE.new" "$STATE.delta"' EXIT INT TERM HUP
 
 # ---------------------------------------------------------------- 报表模式
 if [ "$1" = "--report" ]; then
@@ -53,7 +96,10 @@ if [ "$1" = "--report" ]; then
 fi
 
 # ---------------------------------------------------------------- 采样
-secret=$(grep -E '^secret:' "$CFG" 2>/dev/null | head -1 | sed 's/secret: *//; s/"//g')
+# secret 与 guardian.sh / bulk-guard.sh 同源：运行时从 ShellCrash.cfg 现读。
+# 读不到时按无鉴权请求（核心没开鉴权时这本来就是对的；开了鉴权则本轮 401 无数据）。
+secret=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1)
+[ -n "$secret" ] || echo "traffic-stats: 未从 $API_CFG 读到 secret，按无鉴权请求（若核心开了鉴权，本轮采样为空）" >&2
 sample="$TMPDIR/traffic-stats.sample.$$"
 rows="$TMPDIR/traffic-stats.rows.$$"
 
@@ -96,16 +142,20 @@ END {
 # 状态文件首次运行不存在 —— 先创建成空文件；判别「哪个是旧状态」用 FILENAME
 # 而不是 FNR==NR：旧状态为空时 FNR==NR 对两个文件都成立，会把新样本全当成
 # 旧状态跳过（状态就永远建不出来）。
+# 首见连接只记「种子」不产差值：/connections 的字节是连接累计值，若按
+# 「新值 − 0」计，核心重启 / 状态丢失后会把连接建立以来的字节一次性计入。
 [ -f "$STATE" ] || : >"$STATE"
 awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="$STATE.new" '
 	FILENAME == oldfile { lup[$1] = $4; ldn[$1] = $5; next }	# 旧状态：id host grp up dn
 	{
 		id = $1; host = $2; grp = $3; up = $4 + 0; dn = $5 + 0
-		du = up - (lup[id] + 0)
-		dd = dn - (ldn[id] + 0)
-		if (du < 0) du = 0				# 计数回绕 / id 复用，按 0 计
-		if (dd < 0) dd = 0
-		if (du + dd > 0) print grp, host, du, dd >delta
+		if (id in lup) {				# 见过的连接才计差值；新连接先记种子
+			du = up - (lup[id] + 0)
+			dd = dn - (ldn[id] + 0)
+			if (du < 0) du = 0			# 计数回绕 / id 复用，按 0 计
+			if (dd < 0) dd = 0
+			if (du + dd > 0) print grp, host, du, dd >delta
+		}
 		print id, host, grp, up, dn >newstate
 	}' "$STATE" "$rows" 2>/dev/null
 

@@ -10,6 +10,7 @@ OpenwrtOpsToolkit/
 ├─ openwrt/
 │  ├─ guardian.sh            网络守护：出口组复原 / nft 表补载 / 探活
 │  ├─ bulk-guard.sh          大流量组守卫：按真实吞吐决定走公共池还是机场
+│  ├─ traffic-stats.sh       流量归因：采样 /connections，按「命中的策略组 + 域名」记上下行字节
 │  ├─ recover-now.sh         离线恢复：DNS 解析全失败、代理离线
 │  ├─ rc.local               开机自启模板（/tmp 运行时目录、nft 表、/var 兜底）
 │  ├─ post-sc-update.sh      ShellCrash 官方脚本更新后恢复本地补丁
@@ -28,6 +29,7 @@ OpenwrtOpsToolkit/
 │  ├─ qq_rule_probe.py       边抓日志边看命中了哪条规则
 │  └─ quic_probe.py          QUIC 能力探测
 ├─ tools/check-docs.py       文档自检（链接 / 锚点 / 引言块 / 孤儿）
+├─ tools/check-secrets.py    公开仓敏感信息扫描（凭据 / 本机路径 / 真实邮箱）
 ├─ tools/github-setup.py     批量配置 GitHub 仓库：可见性 / 描述 / 话题
 ├─ tools/make_social_preview.py  从 assets/icon.svg 渲染 logo 与社交预览图
 ├─ docs/                     文档（README.md 是唯一索引）
@@ -40,6 +42,7 @@ OpenwrtOpsToolkit/
 |---|---|---|
 | `openwrt/guardian.sh` | 每 5 分钟巡检一次，必要时做最小化修复 | ⚠️ 会（但只做自愈动作） |
 | `openwrt/bulk-guard.sh` | 每 3 分钟判定一次大流量组走公共池还是机场；钉点/候选用 `proof.ovh.net` 做二次校验（gstatic 通不代表能跑大文件），慢时先在公共池内按吞吐缓存改试（每会话最多 2 个），空闲时每 2 小时实测一次吞吐 | ⚠️ 会（切策略组，并把公共池钉到具体节点） |
+| `openwrt/traffic-stats.sh` | 每分钟采样 mihomo `/connections`，按「命中的策略组 + 域名」累计上下行字节（nlbwmon 只按 LAN 主机记账，答不了「机场流量被谁吃了」）；`--report` 看按组 / 按域名累计 | ⚠️ 会（写 `$CRASHDIR/stats/` 当日统计与 `$RUNTIME_DIR` 采样状态；不切组、不改配置） |
 | `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
 | `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |
 | `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁 | ⚠️ 会（覆盖 starts/ 下三个文件） |

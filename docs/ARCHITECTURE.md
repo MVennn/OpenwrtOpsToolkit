@@ -39,7 +39,7 @@
    提到 `debug`，脚本结束**改回 `info`**（见 §5.4）。
 2. **要动手就最小化修复** —— `openwrt/` 发现偏离时**只补回偏离的那一项**，
    不顺手重构、不做「顺便优化」，每次修复都幂等，跑第二遍不会把设备搞坏。
-3. **红线**（五个脚本共同遵守，展开见 §4.7）：不重启设备、不改订阅与规则源文件、
+3. **红线**（六个脚本共同遵守，展开见 §4.7）：不重启设备、不改订阅与规则源文件、
    不写 UCI 配置、不删防火墙链、不把流量降级到「不可信」的出口、不删任何持久化数据。
 4. **不存凭据** —— secret 与口令一律走环境变量或设备上现读，仓库里只有位置没有值
    （见 [SECRETS.md](SECRETS.md)）。
@@ -71,7 +71,7 @@
 | | 设备侧 `openwrt/` | 控制面 / 站点侧 `mihomo/` `cdn/` |
 |---|---|---|
 | 载体 | `openwrt/conf/device.conf`（不入库） | 环境变量 |
-| 谁读 | 五个 shell 脚本 | 六个 Python 脚本 |
+| 谁读 | 六个 shell 脚本 | 六个 Python 脚本 |
 | 典型键 | `AI_GROUP` `CLEAN_GROUP` `NFT_DIR` `NFT_TABLES` | `MIHOMO_API` `MIHOMO_SECRET` `MIHOMO_PROBE_GROUPS` `AUDIT_DIRECT_GROUP` |
 | 为什么这样分 | 值是**这台设备**的属性（组名、节点名、表名、路径） | 值是**这次连哪台机器**的属性（地址、密钥、要看的组） |
 
@@ -83,9 +83,9 @@
 
 ### 3.1 配置文件查找顺序
 
-五个 shell 脚本用**同一段代码**找配置（`guardian.sh` 第 23–30 行、
+六个 shell 脚本用**同一段代码**找配置（`guardian.sh` 第 23–30 行、
 `recover-now.sh` 第 18–25 行、`post-sc-update.sh` 第 22–29 行、`rc.local` 第 17–24 行、
-`bulk-guard.sh` 第 37–44 行）：
+`bulk-guard.sh` 第 37–44 行、`traffic-stats.sh` 第 36–43 行）：
 
 1. 环境变量 `DEVICE_CONF` 指定的文件 —— 命中即用；
 2. `<脚本所在目录>/conf/device.conf`；
@@ -93,7 +93,7 @@
 
 > `rc.local` 的第 2 步回退值是 `/etc` 而不是 `.` ——
 > 因为它会被装到 `/etc/rc.local`，脚本目录就是 `/etc`，即 `/etc/conf/device.conf`。
-> 其余四个脚本的回退值是 `.`（脚本自己的目录）。
+> 其余五个脚本的回退值是 `.`（脚本自己的目录）。
 
 ### 3.2 三级优先级：环境变量 > 配置文件 > 内置默认值
 
@@ -137,51 +137,51 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 不是所有键对所有脚本都有效。下表是按代码逐个核过的：
 
-| 键 | guardian | bulk-guard | recover-now | rc.local | post-sc-update | 缺了会怎样 |
-|---|---|---|---|---|---|---|
-| `CRASHDIR` | ✅ | ✅ | ✅ | — | ✅ | 用默认 `/etc/ShellCrash` |
-| `RUNTIME_DIR` | ✅ | ✅ | ✅ | ✅ | ✅ | 用默认 `/tmp/ShellCrash` |
-| `CTRL_HOST` | ✅ | ✅ | — | — | — | 用默认 `127.0.0.1` |
-| `CTRL_PORT` | ✅ | ✅ | ✅ | — | — | 用默认 `9999` |
-| `PROXY_PORT` | ✅ | ✅ | ✅ | — | ✅ | 用默认 `7890` |
-| `MIXED_PORT` | — | — | ✅ | — | ✅ | 用默认 `7892` |
-| `DNS_PORT` | — | — | ✅ | ✅ | — | 用默认 `1053` |
-| `CORE_PROC` | ✅ | — | ✅ | — | ✅ | 用默认 `CrashCore` |
-| `NFT_DIR` | ✅ | — | ✅ | ✅ | — | 用默认 `/etc` |
-| `NFT_TABLES` | ✅ | — | ✅ | ✅ | — | 三处默认值**顺序不同**，见下 |
-| `NFT_DNS_TABLES` | — | — | — | ✅ | — | 用默认 `googleroute` |
-| `CRON_FILE` | ✅ | — | ✅ | — | ✅ | 用默认 `/etc/crontabs/root` |
-| `RC_LOCAL` | — | — | ✅ | — | ✅ | 用默认 `/etc/rc.local` |
-| `GUARDIAN_PATH` | — | — | ✅ | — | ✅ | 用默认 `$CRASHDIR/guardian.sh` |
-| `LEGACY_WD` | ✅ | — | ✅ | — | — | 用默认 `$CRASHDIR/starts/start_legacy_wd.sh` |
-| `API_CFG` | ✅ | ✅ | — | — | — | 用默认 `$CRASHDIR/configs/ShellCrash.cfg` |
-| `START_SH` / `TASK_SH` | ✅ | — | — | — | — | 用默认 `start.sh` / `task/task.sh` |
-| `AI_GROUP` / `AI_FALLBACK_GROUP` | ✅ | — | — | — | — | 留空 → 跳过对应自愈 |
-| `CLEAN_GROUP` / `CLEAN_NODE` / `CL_CANDIDATES` | ✅ | — | ✅ | — | — | 留空 → 跳过 |
-| `POOL_GROUP` / `POOL_FALLBACK_GROUP` | ✅ | — | — | — | — | 留空 → 跳过 |
-| `MANUAL_GROUP` | ✅ | — | — | — | — | 留空 → 不顺着它解析真实出口 |
-| `AI_BAD_NODES` / `POOL_BLOCKED_NODES` | ✅ | — | — | — | — | 留空 → 不判「不可信出口」 |
-| `BULK_GROUP` / `BULK_PUBLIC` / `BULK_AIRPORT` | — | ✅ | — | — | — | 留空 → 整条守卫不启用 |
-| `BULK_PROBE_URL` / `BULK_PROBE_BYTES` / `BULK_MIN_BPS` / `BULK_PROBE_MIN_BYTES` | — | ✅ | — | — | — | 用内置默认值 |
-| `BULK_PROBE_INTERVAL` / `BULK_LIVE_MIN_BPS` / `BULK_LIVE_SAMPLE_SEC` | — | ✅ | — | — | — | 用内置默认值 |
-| `BULK_MAX_TRY` / `BULK_SPEED_TTL` / `BULK_SETTLE_SEC` / `BULK_IDLE_SWITCH` / `BULK_RETURN_COOLDOWN` | — | ✅ | — | — | — | 用内置默认值；`BULK_COOLDOWN` 是 `BULK_RETURN_COOLDOWN` 的旧名，仍兼容 |
-| `BULK_STATE` / `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK` / `BULK_LOG` | — | ✅ | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
-| `GUARDIAN_LOG` | ✅ | — | — | — | — | 用默认 `$RUNTIME_DIR/guardian.log` |
-| `RECOVER_LOG` | — | — | ✅ | — | — | 用默认 `/root/recover-last.log` |
-| `POST_SC_LOG` | — | — | — | — | ✅ | 用默认 `/root/post-sc-update.log` |
-| `ROUTER_HEALTH_DIR` | — | — | — | ✅ | — | 用默认 `/etc/router-health` |
-| `DNS_WAIT_LOOPS` | — | — | — | ✅ | — | 用默认 `45`（次） |
-| `REBOOT_VERIFY` | — | — | — | ✅ | — | 用默认 `reboot-verify.sh` |
-| `VAR_RUNTIME_DIRS` | — | — | — | ✅ | — | 用默认那串 `/var/*` |
-| `PATCH_DIR` / `PATCH_SPEC` | — | — | — | — | ✅ | 留空 → 无补丁可恢复 |
-| `CHECK_GROUP` | — | — | — | — | ✅ | 留空 → 跳过「自定义组是否加载」校验 |
-| `CORE_BIN` | — | — | — | — | ✅ | 用默认 `$CRASHDIR/CrashCore.raw` |
-| `WARN_INIT_ENABLED` | — | — | — | — | ✅ | 用默认 `1` |
-| `TMPFS_CLEAN_FILES` | ✅ | — | — | — | — | 用内置白名单 |
-| `DNS_HIJACK_TABLES` | — | — | ✅ | — | — | 用默认那组 DNS 劫持表 |
-| cron 行模板（`GUARDIAN_CRON_LINE` / `CRON_WD_LINE` / `CRON_SAVE_LINE`） / `RESTART_CORE` | — | — | — | — | ✅ | 用默认值 |
-| 探测地址与阈值（`PROBE_URL` 等） | ✅ | — | — | — | — | 用脚本内置默认值 |
-| 连通性测试地址（`DIRECT_TEST_HOST` / `PROXY_TEST_URL` / `PROXY_TEST_URL2`） | — | — | ✅ | — | ✅ | 用默认 `www.baidu.com` / 两个公开站点 |
+| 键 | guardian | bulk-guard | `traffic-stats.sh` | recover-now | rc.local | post-sc-update | 缺了会怎样 |
+|---|---|---|---|---|---|---|---|
+| `CRASHDIR` | ✅ | ✅ | ✅ | ✅ | — | ✅ | 用默认 `/etc/ShellCrash` |
+| `RUNTIME_DIR` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 用默认 `/tmp/ShellCrash` |
+| `CTRL_HOST` | ✅ | ✅ | ✅ | — | — | — | 用默认 `127.0.0.1` |
+| `CTRL_PORT` | ✅ | ✅ | ✅ | ✅ | — | — | 用默认 `9999` |
+| `PROXY_PORT` | ✅ | ✅ | — | ✅ | — | ✅ | 用默认 `7890` |
+| `MIXED_PORT` | — | — | — | ✅ | — | ✅ | 用默认 `7892` |
+| `DNS_PORT` | — | — | — | ✅ | ✅ | — | 用默认 `1053` |
+| `CORE_PROC` | ✅ | — | — | ✅ | — | ✅ | 用默认 `CrashCore` |
+| `NFT_DIR` | ✅ | — | — | ✅ | ✅ | — | 用默认 `/etc` |
+| `NFT_TABLES` | ✅ | — | — | ✅ | ✅ | — | 三处默认值**顺序不同**，见下 |
+| `NFT_DNS_TABLES` | — | — | — | — | ✅ | — | 用默认 `googleroute` |
+| `CRON_FILE` | ✅ | — | — | ✅ | — | ✅ | 用默认 `/etc/crontabs/root` |
+| `RC_LOCAL` | — | — | — | ✅ | — | ✅ | 用默认 `/etc/rc.local` |
+| `GUARDIAN_PATH` | — | — | — | ✅ | — | ✅ | 用默认 `$CRASHDIR/guardian.sh` |
+| `LEGACY_WD` | ✅ | — | — | ✅ | — | — | 用默认 `$CRASHDIR/starts/start_legacy_wd.sh` |
+| `API_CFG` | ✅ | ✅ | ✅ | — | — | — | 用默认 `$CRASHDIR/configs/ShellCrash.cfg` |
+| `START_SH` / `TASK_SH` | ✅ | — | — | — | — | — | 用默认 `start.sh` / `task/task.sh` |
+| `AI_GROUP` / `AI_FALLBACK_GROUP` | ✅ | — | — | — | — | — | 留空 → 跳过对应自愈 |
+| `CLEAN_GROUP` / `CLEAN_NODE` / `CL_CANDIDATES` | ✅ | — | — | ✅ | — | — | 留空 → 跳过 |
+| `POOL_GROUP` / `POOL_FALLBACK_GROUP` | ✅ | — | — | — | — | — | 留空 → 跳过 |
+| `MANUAL_GROUP` | ✅ | — | — | — | — | — | 留空 → 不顺着它解析真实出口 |
+| `AI_BAD_NODES` / `POOL_BLOCKED_NODES` | ✅ | — | — | — | — | — | 留空 → 不判「不可信出口」 |
+| `BULK_GROUP` / `BULK_PUBLIC` / `BULK_AIRPORT` | — | ✅ | — | — | — | — | 留空 → 整条守卫不启用 |
+| `BULK_PROBE_URL` / `BULK_PROBE_BYTES` / `BULK_MIN_BPS` / `BULK_PROBE_MIN_BYTES` | — | ✅ | — | — | — | — | 用内置默认值 |
+| `BULK_PROBE_INTERVAL` / `BULK_LIVE_MIN_BPS` / `BULK_LIVE_SAMPLE_SEC` | — | ✅ | — | — | — | — | 用内置默认值 |
+| `BULK_MAX_TRY` / `BULK_SPEED_TTL` / `BULK_SETTLE_SEC` / `BULK_IDLE_SWITCH` / `BULK_RETURN_COOLDOWN` | — | ✅ | — | — | — | — | 用内置默认值；`BULK_COOLDOWN` 是 `BULK_RETURN_COOLDOWN` 的旧名，仍兼容 |
+| `BULK_STATE` / `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK` / `BULK_LOG` | — | ✅ | — | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
+| `GUARDIAN_LOG` | ✅ | — | — | — | — | — | 用默认 `$RUNTIME_DIR/guardian.log` |
+| `RECOVER_LOG` | — | — | — | ✅ | — | — | 用默认 `/root/recover-last.log` |
+| `POST_SC_LOG` | — | — | — | — | — | ✅ | 用默认 `/root/post-sc-update.log` |
+| `ROUTER_HEALTH_DIR` | — | — | — | — | ✅ | — | 用默认 `/etc/router-health` |
+| `DNS_WAIT_LOOPS` | — | — | — | — | ✅ | — | 用默认 `45`（次） |
+| `REBOOT_VERIFY` | — | — | — | — | ✅ | — | 用默认 `reboot-verify.sh` |
+| `VAR_RUNTIME_DIRS` | — | — | — | — | ✅ | — | 用默认那串 `/var/*` |
+| `PATCH_DIR` / `PATCH_SPEC` | — | — | — | — | — | ✅ | 留空 → 无补丁可恢复 |
+| `CHECK_GROUP` | — | — | — | — | — | ✅ | 留空 → 跳过「自定义组是否加载」校验 |
+| `CORE_BIN` | — | — | — | — | — | ✅ | 用默认 `$CRASHDIR/CrashCore.raw` |
+| `WARN_INIT_ENABLED` | — | — | — | — | — | ✅ | 用默认 `1` |
+| `TMPFS_CLEAN_FILES` | ✅ | — | — | — | — | — | 用内置白名单 |
+| `DNS_HIJACK_TABLES` | — | — | — | ✅ | — | — | 用默认那组 DNS 劫持表 |
+| cron 行模板（`GUARDIAN_CRON_LINE` / `CRON_WD_LINE` / `CRON_SAVE_LINE`） / `RESTART_CORE` | — | — | — | — | — | ✅ | 用默认值 |
+| 探测地址与阈值（`PROBE_URL` 等） | ✅ | — | — | — | — | — | 用脚本内置默认值 |
+| 连通性测试地址（`DIRECT_TEST_HOST` / `PROXY_TEST_URL` / `PROXY_TEST_URL2`） | — | — | — | ✅ | — | ✅ | 用默认 `www.baidu.com` / 两个公开站点 |
 
 > **`NFT_TABLES` 的三个默认值不一样**，这不是笔误，是三张表各自的语义不同：
 > - `guardian.sh`：`quicguard googleroute googlecn` —— 守护要**补载**的表；
@@ -219,26 +219,27 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 ### 4.1 总览矩阵
 
-| 动作 | `guardian.sh` | `bulk-guard.sh` | `recover-now.sh` | `rc.local` | `post-sc-update.sh` |
-|---|---|---|---|---|---|
-| 拉起代理核心 | ✅ §1 | — | ✅ §3 | — | ✅ §4 |
-| 停止 / 强杀核心 | ❌ | — | ✅ §3 | — | ❌ |
-| 重生成运行态配置 | ✅ §5 | — | ✅ §3 | — | ❌ |
-| **切换策略组**（PUT `/proxies`） | ✅ §2 / §2.1 / §2.2 / §3 / §3.5 / §3.6 | ✅ 切 `BULK_GROUP`，并把 `BULK_PUBLIC` 钉到具体节点 | ❌ | — | ❌ |
-| 加载 nft 表 | ✅ §4 | — | ✅ §4 | ✅ | ❌ |
-| **删除 nft 表** | ❌ | — | ✅ §2（**仅 DNS 劫持表**） | ❌ | ❌ |
-| **重载防火墙**（fw4） | ❌ | — | ✅ §4.1 | ❌ | ❌ |
-| 重启 dnsmasq | ❌ | — | ✅ §2 | ❌ | ❌ |
-| 改 crontab | ✅（只补一行） | — | ✅（恢复 + 补两行） | ❌ | ✅（补三行） |
-| **覆盖上游脚本文件** | ❌ | — | ❌ | ❌ | ✅ §1 |
-| 改写过滤文件 | ❌ | — | ✅ §1 | ❌ | ❌ |
-| 删运行态文件 | ❌ | — | ✅ §3 | — | ❌ |
-| 删 `/tmp` 临时大文件 | ✅ §6 | — | ❌ | ❌ | ❌ |
-| 动网络接口（`ifup`） | ❌ | — | ✅ §4.1 | ❌ | ❌ |
-| 写日志 | ✅ | ✅ | ✅ | ✅（syslog） | ✅ |
-| **重启设备** | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **改订阅 / 规则源文件** | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **改 UCI（`/etc/config/*`）** | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 动作 | `guardian.sh` | `bulk-guard.sh` | `traffic-stats.sh` | `recover-now.sh` | `rc.local` | `post-sc-update.sh` |
+|---|---|---|---|---|---|---|
+| 拉起代理核心 | ✅ §1 | — | — | ✅ §3 | — | ✅ §4 |
+| 停止 / 强杀核心 | ❌ | — | — | ✅ §3 | — | ❌ |
+| 重生成运行态配置 | ✅ §5 | — | — | ✅ §3 | — | ❌ |
+| **切换策略组**（PUT `/proxies`） | ✅ §2 / §2.1 / §2.2 / §3 / §3.5 / §3.6 | ✅ 切 `BULK_GROUP`，并把 `BULK_PUBLIC` 钉到具体节点 | — | ❌ | — | ❌ |
+| 加载 nft 表 | ✅ §4 | — | — | ✅ §4 | ✅ | ❌ |
+| **删除 nft 表** | ❌ | — | — | ✅ §2（**仅 DNS 劫持表**） | ❌ | ❌ |
+| **重载防火墙**（fw4） | ❌ | — | — | ✅ §4.1 | ❌ | ❌ |
+| 重启 dnsmasq | ❌ | — | — | ✅ §2 | ❌ | ❌ |
+| 改 crontab | ✅（只补一行） | — | — | ✅（恢复 + 补两行） | ❌ | ✅（补三行） |
+| **覆盖上游脚本文件** | ❌ | — | — | ❌ | ❌ | ✅ §1 |
+| 改写过滤文件 | ❌ | — | — | ✅ §1 | ❌ | ❌ |
+| 删运行态文件 | ❌ | — | — | ✅ §3 | — | ❌ |
+| 删 `/tmp` 临时大文件 | ✅ §6 | — | — | ❌ | ❌ | ❌ |
+| 动网络接口（`ifup`） | ❌ | — | — | ✅ §4.1 | ❌ | ❌ |
+| 写日志 | ✅ | ✅ | — | ✅ | ✅（syslog） | ✅ |
+| 写流量统计与采样状态（`$CRASHDIR/stats/` 与 `$RUNTIME_DIR`） | — | — | — | — | — | ✅ |
+| **重启设备** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
+| **改订阅 / 规则源文件** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
+| **改 UCI（`/etc/config/*`）** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
 
 ### 4.2 `guardian.sh` —— 只做「检测 + 最小化修复」
 
@@ -351,7 +352,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 ### 4.7 明确不会做的事
 
-五个脚本**共同**不做这些：
+六个脚本**共同**不做这些：
 
 - ❌ **不重启设备**（没有 `reboot`）。
 - ❌ **不改订阅源文件与规则文件**。
@@ -363,7 +364,8 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
   **保持原状**并报警，理由是目标站可能按地区拒绝服务。
 - ❌ **不删除任何持久化数据**：`rm -rf` 只出现在两处 ——
   `guardian.sh` §6 删 `/tmp` 白名单里的临时大文件、`recover-now.sh` §3 删运行态的
-  `config.yaml` / `error.yaml` / `shellcrash.pid`（**都在 tmpfs 上**）。
+  `config.yaml` / `error.yaml` / `shellcrash.pid`（**都在 tmpfs 上**）；
+  `traffic-stats.sh` 的 31 天滚动清理（`find -delete`）只删它自己写的统计文件。
 - ❌ **不存任何凭据**：控制 API 的 secret 是运行时从
   `$CRASHDIR/configs/ShellCrash.cfg` 的 `secret=` 行**现读**的。
 
