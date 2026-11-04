@@ -9,6 +9,17 @@
 
 ## [未发布]
 
+### 门禁脚本 GBK 控制台自毁修复（2026-11-04）
+
+- 修 `tools/check-docs.py`、`tools/check-secrets.py`、`tools/github-setup.py`、`tools/make_social_preview.py` 的结论行 `✓` / `✗` / `⚠` → ASCII `[OK]` / `[FAIL]` / `[!]`：Windows 中文控制台
+  （cp936）下这些字符不在 GBK 码表，`print` 抛 `UnicodeEncodeError`，脚本即便检查全过也以
+  **退出码 1** 结束；`python -I` 会忽略 `PYTHONIOENCODING` / `PYTHONUTF8`，环境变量救不回来，
+  只能改脚本本身。
+- 入口补兜底 `if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(errors="replace")`：
+  以后任何非 GBK 字符降级成 `?`，不再让门禁误判失败。
+- 验证：`python -I` 逐个跑上述脚本 → `[OK] …`、退出码 0、无 traceback；反证：把 `✓` 改回原样，
+  同一命令退出码 1 并抛 `UnicodeEncodeError`。
+
 ### 大流量守卫补「空池」判定（2026-11-04）
 
 - `openwrt/bulk-guard.sh`：新增 `pool_real()` / `api_ok()` / `pool_cands()`。

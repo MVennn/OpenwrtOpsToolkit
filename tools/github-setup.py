@@ -28,6 +28,9 @@ import time
 import urllib.error
 import urllib.request
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 API = "https://api.github.com"
 OWNER = "MVennn"
 
@@ -132,15 +135,15 @@ args = ap.parse_args()
 
 TOKEN = load_token()
 if not TOKEN:
-    print("  ✗ 没找到 GitHub 令牌。")
+    print("  [FAIL] 没找到 GitHub 令牌。")
     print("     设置 GS_GITHUB_TOKEN 或 GH_TOKEN，或让 git 凭据管理器存好 github.com 的 PAT。")
     sys.exit(1)
 
 st0, me = req("GET", "/user")
 if st0 != 200:
-    print(f"  ✗ 令牌无效（HTTP {st0}）：{str(me)[:160]}")
+    print(f"  [FAIL] 令牌无效（HTTP {st0}）：{str(me)[:160]}")
     sys.exit(1)
-print(f"  ✓ 令牌有效：{me.get('login')} (id={me.get('id')})")
+print(f"  [OK] 令牌有效：{me.get('login')} (id={me.get('id')})")
 print()
 
 targets = {k: v for k, v in PROJECTS.items() if not args.only or k in args.only}
@@ -148,7 +151,7 @@ ok = 0
 for name, cfg in targets.items():
     st, data = req("GET", f"/repos/{OWNER}/{name}")
     if st != 200:
-        print(f"  ✗ {name}: 查不到仓库（HTTP {st}）{str(data)[:120]}")
+        print(f"  [FAIL] {name}: 查不到仓库（HTTP {st}）{str(data)[:120]}")
         continue
     cur = "private" if data.get("private") else "public"
     target = "private" if cfg["private"] else "public"
@@ -160,12 +163,12 @@ for name, cfg in targets.items():
         "private": cfg["private"],
     })
     if st2 != 200:
-        print(f"  ✗ {name}: 设置失败（HTTP {st2}）{str(d2)[:160]}")
+        print(f"  [FAIL] {name}: 设置失败（HTTP {st2}）{str(d2)[:160]}")
         continue
     st3, d3 = req("PUT", f"/repos/{OWNER}/{name}/topics", {"names": cfg["topics"]})
     if st3 != 200:
-        print(f"  ⚠ {name}: 描述已更新，话题失败（HTTP {st3}）{str(d3)[:120]}")
-    print(f"  ✓ {name:20} {cur} → {target}  （描述 + {len(cfg['topics'])} 个话题）")
+        print(f"  [!] {name}: 描述已更新，话题失败（HTTP {st3}）{str(d3)[:120]}")
+    print(f"  [OK] {name:20} {cur} → {target}  （描述 + {len(cfg['topics'])} 个话题）")
     ok += 1
 
 print(f"\n  完成 {ok}/{len(targets)}")
