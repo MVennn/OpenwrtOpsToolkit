@@ -337,13 +337,25 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
    （`PROBE_URL` 返回 200 且响应体含 `"delay"`），再给 `BULK_SETTLE_SEC` 重连、
    采样 `BULK_LIVE_SAMPLE_SEC` 的真实速率。候选都跑不满（或没有候选）→ 切机场。
 4. **组在机场**：停留满 `BULK_RETURN_COOLDOWN` 且连续 `BULK_IDLE_SWITCH` 秒没有
-   「在传」的连接 → 切回 `BULK_PUBLIC`，并钉住缓存里吞吐最好的节点。
+   「在传」的连接 → **先在池子里找一个 gstatic + 大流量探测双通的节点**（`pick_live_node_n`，
+   最多试 3 个），找到才钉住并切回 `BULK_PUBLIC`；找不到就留在机场，
+   每 `POOL_EMPTY_LOG_TTL`（6 小时）记一次 `WARN`，不切回。
 5. **钉住节点的健康检查**：`BULK_PUBLIC` 被钉住后 URLTest 不再自动切换（控制 API
    只能钉、不能解钉），所以每轮先用 `node_bulk_alive()` 测钉住的节点
    （`PROBE_URL`，不是 gstatic）；不合格就换一个能承载大流量的，全都不行就切机场。
    未钉住时也检查 URLTest 当前节点，防止它选到「gstatic 通但 OVH 不通」的节点。
-6. **切到机场后**：本会话不再回试公共池；机场也跑不满时不做额外动作 —— 那通常是
+6. **空池判定**：池子里的「真节点」= 成员剔除 `DIRECT` / `COMPATIBLE` / `REJECT` 等
+   内置项（`pool_real()`）。为空时 url-test 只剩 `COMPATIBLE`，组等价直连 ——
+   而探测域 `proof.ovh.net` 直连是通的，第 1、5 条都看不见这种故障。
+   所以只要 `api_ok`（控制 API 答得上，排除核心重启中）且池子为空，
+   立刻切 `BULK_AIRPORT`（理由写「公共池为空」）。
+   候选节点一律走 `pool_cands()`：只取池内真节点、按吞吐缓存排序 ——
+   吞吐缓存里可能残留内置项或已被筛掉的节点名，直接拿来 `PUT` 会被控制 API 拒绝。
+7. **切到机场后**：本会话不再回试公共池；机场也跑不满时不做额外动作 —— 那通常是
    源站/上传方慢，来回切只会更糟。
+
+`BULK_TEST_POOL_EMPTY=1` 是**验收用**开关：把池子当成空的，用来在 `--dry-run` 下
+走一遍「空池切机场」与「空池不回切」两条路径，不改任何设备状态。
 
 它会 `PUT` `BULK_GROUP`，并把 `BULK_PUBLIC` 钉到具体节点；不拉起 / 停止核心、
 不改配置、不写 crontab。状态文件 `$BULK_STATE` / `$BULK_SPEED_STATE` / `$BULK_TRIED`、

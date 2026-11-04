@@ -9,6 +9,21 @@
 
 ## [未发布]
 
+### 大流量守卫补「空池」判定（2026-11-04）
+
+- `openwrt/bulk-guard.sh`：新增 `pool_real()` / `api_ok()` / `pool_cands()`。
+  公共池只剩内置 `DIRECT`/`COMPATIBLE` 时组等价直连 —— 探测域 `proof.ovh.net`
+  直连是通的，原来的存活/吞吐检查看不出问题，Telegram（按 IP 段指进本组）
+  空池时会静默走直连断掉。现在池子空且控制 API 可用就立刻切机场
+- 回切前必须用 `pick_live_node_n`（最多 3 个候选）找到 gstatic + 大流量探测
+  双通的节点，找不到就留在机场，每 6 小时记一次 `WARN`
+- 候选统一走 `pool_cands()`：只取池内真节点 + 吞吐缓存排序，修掉「把缓存里残留的
+  `COMPATIBLE` 当节点 `PUT`、被控制 API 拒绝后刷 ERROR」的问题
+- `--status` 多打一行「公共池真节点」；验收开关 `BULK_TEST_POOL_EMPTY=1`
+  （只影响判定，不改设备状态）
+- 文档：ARCHITECTURE §4.6 第 4–6 条、PITFALLS P43、TOOLS 工具表、
+  MAINTENANCE §3.8 B6/B10 及新增 B11–B12
+
 ### 部署文档闭环与门面脚本依赖提示（2026-11-04）
 
 - `openwrt/README.md` §3：配置改为单文件落点 `/etc/openwrt-ops/device.conf`，

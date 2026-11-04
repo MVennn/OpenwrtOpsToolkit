@@ -254,11 +254,13 @@ sh openwrt/guardian.sh --dry-run
 | B3 | **慢探测不再被当成无效** | 跑满 40 秒但已收到 ≥ `BULK_PROBE_MIN_BYTES` → 按 `speed_download` 判慢；只有非 `200/206`、字节不足、或提前断流才记「探测无效」 |
 | B4 | **活跃连接按 id 正增量判定** | 两个窗口都低于 `BULK_LIVE_MIN_BPS` 才动；关闭的连接不能产生负增量（多连接下载时关掉其中一条验证）；第一个窗口慢 + 第二个 0 字节 → 停滞；两个窗口都 0 → 暂停 |
 | B5 | **轮换预算** | `BULK_MAX_TRY` 只限制每会话改试的**活节点**数；死节点记 `INFO: … 不可达`，不占预算；候选都跑不满才切机场 |
-| B6 | **机场回切** | 停留满 `BULK_RETURN_COOLDOWN` 且连续 `BULK_IDLE_SWITCH` 无在传连接才切回公共池，并钉住缓存最优节点 |
+| B6 | **机场回切** | 停留满 `BULK_RETURN_COOLDOWN` 且连续 `BULK_IDLE_SWITCH` 无在传连接才切回公共池，并钉住一个**双通**节点（`pick_live_node_n`，最多 3 个候选）；找不到就留在机场 |
 | B7 | **钉住节点健康检查** | 把公共池钉到一个死节点 → 下一轮出现 `FIX: 公共池钉住的…改钉…`；全都不活则切机场 |
 | B8 | **日志自限容** | 日志超 200 KB 后只剩最后 60 行 |
 | B9 | **探测域走本组** | `rules` 里探测域（默认 `proof.ovh.net`）固定指向 `BULK_GROUP`，否则测的是默认出口 |
-| B10 | **`--status` 只打印** | 不 `PUT`、不探测，只输出当前组、钉住节点、阈值、缓存、已试节点与时间戳 |
+| B10 | **`--status` 只打印** | 不 `PUT`、不探测，只输出当前组、钉住节点、**真节点数**、阈值、缓存、已试节点与时间戳 |
+| B11 | **空池不切回 / 空池切机场** | `BULK_TEST_POOL_EMPTY=1 sh bulk-guard.sh --dry-run`：组在公共池 → `DRY-RUN: 将把「…」切到「…」（公共池为空…）`；组在机场 → `WARN: 公共池没有可承载大流量的节点，留在「…」不切回`。两条都只记日志，不发 `PUT` |
+| B12 | **候选只取池内真节点** | 往吞吐缓存里手写一行 `COMPATIBLE` → 改钉日志里不再出现 `ERROR: 公共池改钉「COMPATIBLE」被控制 API 拒绝` |
 
 ### 3.9 改完还要连带改的
 
@@ -410,3 +412,4 @@ CI（`.github/workflows/ci.yml`）跑的就是这几样，外加一条明文凭�
 | 2026-10-26 | 全仓审查修复：DNS 劫持表 family 解析、WAN 诊断 BusyBox 兜底、端口边界、守卫探针看状态码、切组 URL/JSON 转义、secret 缺失告警、验收统计、mihomo_api /rules 解包、rule_audit 假绿灯、域名归类锚定、CDN 压缩指针、check-secrets 片段级豁免；`device.conf.example` 补 `PATCH_SPEC` | 已部署 `/etc/ShellCrash/bulk-guard.sh` 与 `post-sc-update.sh`（`check` 模式三处标记 OK、`--dry-run` rc=0、md5 一致）；`/etc/openwrt-ops/device.conf` 补 `PATCH_SPEC`；PITFALLS P40–P41、CHANGELOG 同批 |
 | 2026-11-01 | 收尾大扫除：按 §2.2「仓内不留运行产物」清 `cdn/` `mihomo/` `tools/` 三处 `__pycache__`（15 个 `.pyc`，共 183,369 字节 ≈ 179 KB）与空的 `.work/`（含空 `.work/tmp/`）；删的均是被 ignore 的本地产物，git 不留痕 | `check-docs.py` ✓（21 篇）、`check-secrets.py` ✓（59 文件）、5 个 `.sh` 的 `sh -n` ✓（`git ls-files --eol` 确认索引与工作树均 LF）、`*.py` ast.parse ✓。红线未动：`openwrt/conf/device.conf.example`（要入库的样例）；`openwrt/conf/device.conf` 本机不存在，符合 §5.3 的 `test ! -e` 自检 |
 | 2026-11-01 | 增量审查修复：`traffic-stats.sh` 补 device.conf 加载（`CTRL_HOST` / `CTRL_PORT` / `CRASHDIR` / `RUNTIME_DIR` / `API_CFG` 可配，secret 改与 guardian / bulk-guard 同源读 `ShellCrash.cfg`）、首见连接改记种子（核心重启后不再把连接累计字节一次性计入，PITFALLS P42）、trap 补 `INT` / `TERM` / `HUP`；文档计数五 → 六（ARCHITECTURE / UPSTREAM / MAINTENANCE / openwrt/README），ARCHITECTURE §3.5 键表与 §4.1 矩阵补列，TOOLS.md 目录树与会改表补 `traffic-stats.sh` 与 `check-secrets.py`，TROUBLESHOOTING 补 §16 | `check-docs.py` ✓（21 篇）、`check-secrets.py` ✓（59 文件）、6 个 shell（含 `rc.local`）`sh -n` ✓、15 个 `.py` `py_compile` ✓、LF 未变（`git ls-files --eol`）。红线未动：`openwrt/conf/device.conf.example`；`openwrt/conf/device.conf` 本机不存在，符合 §5.3 自检。未连设备，真机回灌待下批 |
+| 2026-11-04 | 大流量守卫补「空池」判定：`pool_real()` 剔除内置 `DIRECT`/`COMPATIBLE`/`REJECT`，`api_ok()` 防核心重启误判，池空立即切机场；机场回切前要求 `pick_live_node_n 3` 找到双通节点，否则留在机场（6 小时告警一次）；候选统一走 `pool_cands()`（只取池内真节点 + 吞吐缓存排序，修掉把残留 `COMPATIBLE` 当节点 `PUT` 的问题）；`--status` 补真节点数；新增验收开关 `BULK_TEST_POOL_EMPTY` | 已部署 `/etc/ShellCrash/bulk-guard.sh`（md5 与仓库一致），实跑验证：15:40 自动把 `🆓 公共-03` 换钉到 `🆓 公共-07`（980 KB/s），Telegram 两个 DC 段 200；`BULK_TEST_POOL_EMPTY=1 --dry-run` 两条路径各验一次，均未发 `PUT`。`check-docs.py` / `check-secrets.py` / `sh -n` / `ash -n` 全过；PITFALLS P43、CHANGELOG 同批 |

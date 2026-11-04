@@ -236,3 +236,39 @@ EOF / HTTP 502。旧 `bulk-guard.sh` 的 `node_alive()` 只测 gstatic，钉点/
   §16 验证
 
 ## 状态: 已完成
+
+---
+
+# 2026-11-04 大流量守卫补「空池」判定
+
+## 背景
+- 现网故障：Telegram 不可用。取证：`🆓 公共备用` 成员只剩 `COMPATIBLE`
+  （13 条公共节点丢失），`📺 大流量` 仍钉在它上面 → Telegram DC 段走直连超时；
+  而 `proof.ovh.net` 直连是通的，守卫日志一直是「空闲探测 1290 KB/s（健康）」。
+- 恢复：从 `proxies.yaml.bak-public-screen-20261104-105816` 写回 13 条节点、
+  重启 ShellCrash（运行配置 13 条），`DELETE /proxies/<公共池>` 解掉残留的
+  `fixed=COMPATIBLE`（重启不会清 fixed）。
+
+## 已完成变更
+- [x] `pool_real()`：池内真节点 = 成员剔除 `DIRECT`/`COMPATIBLE`/`REJECT`/`PASS`/`GLOBAL`
+- [x] `api_ok()`：核心重启时 GET 会空，不能据此判空池
+- [x] 组在公共池 + 池空 → `switch_airport("公共池为空…")`
+- [x] 组在机场回切前 `pick_live_node_n 3`；无候选则留在机场，`POOL_EMPTY_LOG_TTL=21600` 告警一次
+- [x] `pool_cands()`：候选只取池内真节点、按吞吐缓存排序（修掉残留 `COMPATIBLE` 被 `PUT` 刷 ERROR）
+- [x] `--status` 补「公共池真节点: N」；新增验收开关 `BULK_TEST_POOL_EMPTY`
+- [x] 文档：ARCHITECTURE §4.6、PITFALLS P43、TOOLS 工具表、MAINTENANCE §3.8（B6/B10 改，B11–B12 新增）与 §7 维护记录、CHANGELOG
+- [x] 提案内容已并入 ARCHITECTURE / PITFALLS / MAINTENANCE，临时提案文档入库前删除
+
+## 自检
+- `sh -n` / 路由器 `ash -n` ✓；`check-docs.py` / `check-secrets.py` ✓
+- 真机：15:40 一轮 `FIX: 公共池「🆓 公共-03」不能承载大流量探测，改钉「🆓 公共-07」（钉住生效）`，
+  空闲探测 980 KB/s；Telegram `t.me` 302、`149.154.167.99` 200、`91.108.56.130` 200
+- `BULK_TEST_POOL_EMPTY=1 --dry-run`：组在公共池 → `DRY-RUN: 将把「…」切到「…」（公共池为空…）`；
+  组在机场 → `WARN: 公共池没有可承载大流量的节点，留在「…」不切回`；均无 `PUT`
+
+## 未做（已记录）
+- `tools/public-nodes/screen.py` 部署后「运行配置 0 节点」缺断言（本次事故起点）
+- `starts/sub-sync.sh` 遇到空 `proxies.yaml` 只补自己的块、不告警
+- Telegram 是否单独成组（空池时回落机场）属 ShellcrashRules 的策略取舍
+
+## 状态: 已完成

@@ -41,7 +41,7 @@ OpenwrtOpsToolkit/
 | 文件 | 作用 | 会改设备状态吗 |
 |---|---|---|
 | `openwrt/guardian.sh` | 每 5 分钟巡检一次，必要时做最小化修复 | ⚠️ 会（但只做自愈动作） |
-| `openwrt/bulk-guard.sh` | 每 3 分钟判定一次大流量组走公共池还是机场；钉点/候选用 `proof.ovh.net` 做二次校验（gstatic 通不代表能跑大文件），慢时先在公共池内按吞吐缓存改试（每会话最多 2 个），空闲时每 2 小时实测一次吞吐 | ⚠️ 会（切策略组，并把公共池钉到具体节点） |
+| `openwrt/bulk-guard.sh` | 每 3 分钟判定一次大流量组走公共池还是机场；钉点/候选用 `proof.ovh.net` 做二次校验（gstatic 通不代表能跑大文件），慢时先在公共池内按吞吐缓存改试（每会话最多 2 个），空闲时每 2 小时实测一次吞吐；**空池单独判定**（池子只剩内置直连时立刻切机场，在机场时找不到双通节点就不切回） | ⚠️ 会（切策略组，并把公共池钉到具体节点） |
 | `openwrt/traffic-stats.sh` | 每分钟采样 mihomo `/connections`，按「命中的策略组 + 域名」累计上下行字节（nlbwmon 只按 LAN 主机记账，答不了「机场流量被谁吃了」）；差值先攒 `/tmp` 缓冲，默认每 10 分钟（`STATS_FLUSH_MIN`，0=逐分钟）聚合落盘当日 tsv，只留 31 天；`--report` 看按组 / 按域名累计 | ⚠️ 会（写 `$CRASHDIR/stats/` 当日统计与 `$RUNTIME_DIR` 采样状态；不切组、不改配置） |
 | `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
 | `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |

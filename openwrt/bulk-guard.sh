@@ -29,6 +29,10 @@
 #   6) 公共池体检以「实际承流节点 now」为准（不是 fixed）：钉住的节点过不了
 #      核心健康检查时 url-test 会自动漂走，fixed 与承流节点脱节；换钉的候选
 #      必须 gstatic + 大流量探测双通，钉住后复核 now 真的跟上才算数。
+#   7) 空池单独判定：池子里只剩内置 DIRECT/COMPATIBLE 时组等价直连，而探测域
+#      proof.ovh.net 直连是通的 —— 普通的存活/吞吐检查看不出问题。所以池子空
+#      就立刻切机场；在机场时不把「没有可用节点」的池子切回来（2026-11-04：
+#      公共节点部署失败留下空池，Telegram 走直连断了近 4 小时）。
 #
 # 为什么不在有连接时跑探测下载：探测流量会和下载抢带宽，把好节点误判成坏节点。
 # 为什么切回公共池要等空闲：切组 = 断流；空闲时切没有代价。
@@ -119,6 +123,9 @@ IDLE_SWITCH="${BULK_IDLE_SWITCH:-300}"
 # 必须大于 cron 周期：等于时（600s vs */10）切机场的那轮之后的下一轮 cron
 # 时间戳恰好 ≥ 冷却到期点，每回都「刚切就切回」，机场停留名存实亡。
 RETURN_COOLDOWN="${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-1200}}"
+# 公共池没有可承载大流量的节点时，「留在机场不切回」的提醒间隔。
+# 用脚本常量而不是配置键：只是一个日志节流，不值得为它多一个 device.conf 项。
+POOL_EMPTY_LOG_TTL=21600
 
 STATE="${BULK_STATE:-$RUNTIME_DIR/.bulk_guard_state}"
 SPEED="${BULK_SPEED_STATE:-$RUNTIME_DIR/.bulk_guard_speed}"
@@ -249,6 +256,32 @@ pool_nodes() {
     | sed -n 's/.*"all":\[\([^]]*\)\].*/\1/p' \
     | tr ',' '\n' | sed 's/^"//; s/"$//'
 }
+# 控制 API 是否答得上：核心正在重启时 GET 返回空，此时不能把「空池」当结论。
+api_ok() {
+  _c=$($CURL -s -m 4 -o /dev/null -w "%{http_code}" -H "$AUTH" "$CTRL/version" 2>/dev/null)
+  [ "$_c" = "200" ]
+}
+# 池子里的「真节点」：DIRECT / COMPATIBLE / REJECT 是 mihomo 内置项。
+# 池子为空时 url-test 会退化成只剩 COMPATIBLE（= 直连），组等于直连 ——
+# 大流量（含按 IP 段指进本组的 Telegram）全走 DIRECT，而探测域 proof.ovh.net
+# 直连是通的，pool_health / idle_probe 都看不出问题（2026-11-04 事故）。
+pool_real() {
+  pool_nodes | grep -vxE 'DIRECT|COMPATIBLE|REJECT|PASS|GLOBAL' 2>/dev/null
+}
+# 验收用：BULK_TEST_POOL_EMPTY=1 时把池子当成空的（只影响判定，不改设备状态）
+[ "${BULK_TEST_POOL_EMPTY:-0}" = "1" ] && pool_real() { :; }
+# 候选公共节点：只取池子里的真节点，按吞吐缓存的顺序排。
+# 两处都要收紧，否则会「钉一个不属于本组的名字」——
+#   - 旧版本在池子为空时把 COMPATIBLE 写进了吞吐缓存，改钉时被当成节点发 PUT，
+#     控制 API 拒绝，日志刷 ERROR 却钉不上（2026-11-04 实测）；
+#   - 缓存的 TTL 是 1 小时，节点被筛掉后名字还可能留在缓存里。
+pool_cands() {
+  _order=$(speed_list)
+  pool_real | while IFS= read -r _n; do
+    _pos=$(printf '%s\n' "$_order" | grep -Fxne "$_n" 2>/dev/null | head -1 | cut -d: -f1)
+    printf '%s|%s\n' "${_pos:-99999}" "$_n"
+  done | sort -t'|' -k1,1n | cut -d'|' -f2-
+}
 node_alive() {
   _c=$($CURL -s -m 6 -o /dev/null -w "%{http_code}" -H "$AUTH" -G \
     --data-urlencode "url=$ALIVE_URL" --data-urlencode "timeout=2500" \
@@ -299,10 +332,7 @@ probe_bps() {
 # 按缓存从快到慢列出候选公共节点（排除当前节点与本会话已试过的）
 candidate_list() {
   _cur="$1"
-  {
-    speed_list
-    pool_nodes
-  } | awk '!seen[$0]++' | while IFS= read -r _n; do
+  pool_cands | awk '!seen[$0]++' | while IFS= read -r _n; do
     [ -z "$_n" ] && continue
     [ "$_n" = "$_cur" ] && continue
     tried_has "$_n" && continue
@@ -317,12 +347,26 @@ candidate_list() {
 # 不认，url-test 漂到别的节点，fixed 形同虚设。
 pick_live_node() {
   _ex="$1"
-  {
-    speed_list
-    pool_nodes
-  } | awk '!seen[$0]++' | while IFS= read -r _n; do
+  pool_cands | awk '!seen[$0]++' | while IFS= read -r _n; do
     [ -z "$_n" ] && continue
     [ "$_n" = "$_ex" ] && continue
+    if node_alive "$_n" && node_bulk_alive "$_n"; then
+      echo "$_n"
+      break
+    fi
+  done
+}
+# 限量版 pick_live_node：回切前最多试 N 个候选。池子里 13 条全死时，
+# 不限量会把一轮 cron 拖到两分钟（每条例行 6s + 10s 探测）。
+pick_live_node_n() {
+  _limit=$1
+  _ex=$2
+  _i=0
+  pool_cands | awk '!seen[$0]++' | while IFS= read -r _n; do
+    [ -z "$_n" ] && continue
+    [ "$_n" = "$_ex" ] && continue
+    [ "$_i" -ge "$_limit" ] && break
+    _i=$((_i + 1))
     if node_alive "$_n" && node_bulk_alive "$_n"; then
       echo "$_n"
       break
@@ -503,6 +547,7 @@ if [ "$MODE" = "--status" ]; then
   echo "组: $GROUP"
   echo "当前: $NOW"
   echo "公共池: $PUBLIC（钉住: $(grp_fixed "$PUBLIC")）"
+  echo "公共池真节点: $(pool_real | grep -c . 2>/dev/null | tr -d ' ')"
   echo "阈值: $((MIN_BPS / 1024)) KB/s（空闲探测 ${PROBE_BYTES}B，每 ${PROBE_INTERVAL}s 一次）"
   echo "爬速下限: $((LIVE_MIN_BPS / 1024)) KB/s（活跃连接时 2×${LIVE_SAMPLE_SEC}s 采样）"
   echo "每会话最多改试: $MAX_TRY 个公共节点（已试 $(tried_count)）"
@@ -583,7 +628,13 @@ if [ "$NOW" = "$PUBLIC" ]; then
     fi
   else
     # 钉住的节点死了 URLTest 不会自愈；只在空闲时查，避免把忙节点的 504 当成死亡。
-    if pool_health; then idle_probe; fi
+    # 空池 = 组等价直连（大流量会走 DIRECT），而探测域直连是通的，
+    # pool_health / idle_probe 都看不出问题 —— 先单查这一条（2026-11-04 事故）。
+    if api_ok && [ -z "$(pool_real)" ]; then
+      switch_airport "公共池为空（成员只剩内置直连，大流量会走 DIRECT）"
+    elif pool_health; then
+      idle_probe
+    fi
   fi
 else
   # 当前在机场（或用户手选的其它成员）：空闲够久才切回公共池
@@ -598,17 +649,27 @@ else
   else
     LAST_MOVING=$(state_get last_moving); LAST_MOVING=${LAST_MOVING:-0}
     if [ $((NOW_TS - LAST_MOVING)) -ge "$IDLE_SWITCH" ] && [ "$NOW_TS" -ge "$CU" ]; then
-      _best=$(speed_list | head -1)
-      if [ "$DRY_RUN" = "1" ]; then
-        log "DRY-RUN: 将切回「$PUBLIC」并钉住「${_best:-不钉}」"
+      # 回切前先确认池子里真有能承载大流量的节点：空池的 url-test 只剩
+      # COMPATIBLE（= 直连），切回去等于把大流量（含 Telegram）送进直连。
+      _best=""
+      if api_ok; then
+        _best=$(pick_live_node_n 3 "")
+      fi
+      if [ -z "$_best" ]; then
+        # 池子没救时别每轮刷屏：6 小时记一次足够。
+        _pe_log=$(state_get pool_empty_logged); _pe_log=${_pe_log:-0}
+        if [ $((NOW_TS - _pe_log)) -ge "$POOL_EMPTY_LOG_TTL" ]; then
+          state_set pool_empty_logged "$NOW_TS"
+          log "WARN: 公共池没有可承载大流量的节点，留在「$AIRPORT」不切回（下次提醒 ${POOL_EMPTY_LOG_TTL}s 后）"
+        fi
+      elif [ "$DRY_RUN" = "1" ]; then
+        log "DRY-RUN: 将切回「$PUBLIC」并钉住「$_best」"
       else
-        [ -n "$_best" ] && put "$PUBLIC" "$_best" >/dev/null
+        put "$PUBLIC" "$_best" >/dev/null
         if [ "$(put "$GROUP" "$PUBLIC")" = "204" ]; then
           tried_reset
           state_set fails 0
-          _msg=""
-          [ -n "$_best" ] && _msg="（钉住「$_best」）"
-          log "INFO: 机场已空闲 $(( (NOW_TS - LAST_MOVING) / 60 )) 分钟，切回公共池$_msg"
+          log "INFO: 机场已空闲 $(( (NOW_TS - LAST_MOVING) / 60 )) 分钟，切回公共池（钉住「$_best」）"
         else
           log "ERROR: 切回「$PUBLIC」被控制 API 拒绝"
         fi
