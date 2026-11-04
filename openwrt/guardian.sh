@@ -423,6 +423,10 @@ if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
     for f in $TMPFS_CLEAN_FILES; do
       [ -z "$f" ] && continue
       [ -e "$f" ] || continue
+      case "$f" in
+        /tmp/*) ;;
+        *) log "SKIP: TMPFS_CLEAN_FILES 含 /tmp 之外的路径 $f，拒绝清理"; continue ;;
+      esac
       if [ "$DRY_RUN" = "1" ]; then
         log "DRY-RUN: 本应清理 /tmp 临时大文件 $f"
       else

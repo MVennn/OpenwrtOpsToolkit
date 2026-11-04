@@ -82,8 +82,8 @@ ROUTER_HEALTH_DIR=/etc/router-health
 #FALLBACK_HEAL_INTERVAL=1800
 #ALIVE_STALE_SEC=1800
 
-# /tmp 水位过高时要清的临时文件（空格分隔）
-#TMPFS_CLEAN_FILES="/tmp/pre-reboot-config.tar.gz /tmp/mihomo-new /tmp/mihomo-arm64.gz"
+# /tmp 水位过高时要清的临时文件（空格分隔；只接受 /tmp/ 下的路径，其余会被拒绝）
+#TMPFS_CLEAN_FILES="/tmp/pre-reboot-config.tar.gz /tmp/mihomo-new /tmp/mihomo-arm64.gz /tmp/core_test_out.txt"
 
 # ---------------------------------------------------------------------------
 # bulk-guard.sh：大流量组（公共池承载大文件下载，跑不满切回机场）
@@ -130,3 +130,23 @@ ROUTER_HEALTH_DIR=/etc/router-health
 # 标记不能含空格（解析按空白切分）。
 # ---------------------------------------------------------------------------
 #PATCH_SPEC="starts/clash_modify.sh=rules-mid.sh,reorder-groups.sh starts/fw_nftables.sh=QUIC_BLOCK_MARKER starts/start_legacy_wd.sh=pidof"
+
+# ---------------------------------------------------------------------------
+# recover-now.sh：整套恢复（人工执行；crontab 整表丢失时的兜底也走它）
+# ---------------------------------------------------------------------------
+# 恢复时要一起还原的 DNS 劫持表（"inet:名称"/"ip:名称"/"ip6:名称"，空格分隔）
+#DNS_HIJACK_TABLES="inet:googleroute inet:shellcrash ip:shellcrash ip6:shellcrash"
+# 开机脚本与守护路径（恢复后按这些路径重新加载/拉起）
+#RC_LOCAL=/etc/rc.local
+#GUARDIAN_PATH=/etc/ShellCrash/guardian.sh
+#RECOVER_LOG=/root/recover-last.log
+# 恢复完的连通性测试
+#DIRECT_TEST_HOST=www.baidu.com
+#PROXY_TEST_URL=https://www.google.com
+#PROXY_TEST_URL2=https://gemini.google.com/
+
+# ---------------------------------------------------------------------------
+# traffic-stats.sh：流量归因（每分钟采样 mihomo /connections）
+# ---------------------------------------------------------------------------
+# 差值缓冲攒够多少分钟才聚合落盘（闪存降频；默认 10；0 = 逐分钟落盘）
+#STATS_FLUSH_MIN=10

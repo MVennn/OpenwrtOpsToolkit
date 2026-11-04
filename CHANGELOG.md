@@ -16,6 +16,17 @@
 - §3 补 `traffic-stats.sh` 的 scp / chmod / cron（0.3.0 新增脚本后部署清单漏项）
 - `tools/make_social_preview.py` 缺 numpy/Pillow 时给出安装提示，不再裸 traceback
 
+### P3 清理（2026-11-04 审查遗留项）
+
+- `openwrt/guardian.sh` 的 `/tmp` 清理循环加路径形态防护：`TMPFS_CLEAN_FILES` 只接受
+  `/tmp/*`，其余路径记 SKIP 日志并拒绝删除（配置手滑写宽路径时不再整目录删）
+- `openwrt/traffic-stats.sh` 删死变量 `CFG`（从未被引用）
+- `openwrt/conf/device.conf.example`：`TMPFS_CLEAN_FILES` 注释值与内置默认对齐（补
+  `/tmp/core_test_out.txt`）；补 recover-now.sh 专属键（`DNS_HIJACK_TABLES` / `RC_LOCAL` /
+  `GUARDIAN_PATH` / `RECOVER_LOG` / `DIRECT_TEST_HOST` / `PROXY_TEST_URL` / `PROXY_TEST_URL2`）
+  与 `STATS_FLUSH_MIN`
+- `README.md` 删掉过度声明的 `uhttpd` / `ubus` / `rpcd` 依赖（脚本零引用）
+
 ## [0.3.0] — 2026-11-01
 
 ### 守卫脚本 bug 奇偶同步（2026-11-01）

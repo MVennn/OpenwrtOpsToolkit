@@ -30,7 +30,7 @@
 
 | 项 | 要求 |
 |---|---|
-| 设备 | 任意 OpenWrt；`openwrt/` 另需 `uhttpd` / `ubus` / `rpcd` / `nft` / busybox `sh` |
+| 设备 | 任意 OpenWrt；`openwrt/` 另需 `nft` / busybox `sh`（脚本不依赖 uhttpd / ubus / rpcd） |
 | 代理 | ShellCrash，或任何基于 Clash.Meta / mihomo 内核的部署 |
 | 本机 | `mihomo/` `cdn/` 需要 Python 3.8+（只用标准库，`rule_audit.py` 另需 PyYAML）；`openwrt/` 是纯 shell |
 | 网络 | 诊断工具要能连到 mihomo 控制 API（默认 `http://127.0.0.1:9999`） |

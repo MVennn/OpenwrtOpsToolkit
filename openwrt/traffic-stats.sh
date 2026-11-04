@@ -79,7 +79,6 @@ STATE="$TMPDIR/traffic-stats.state"
 # 当日差值的落盘缓冲（tmpfs）：按日期分文件（traffic-stats.buf.YYYY-MM-DD），
 # 攒到 STATS_FLUSH_MIN 分钟才聚合进 $STATS_DIR 的当日 tsv —— 闪存降频用。
 BUF="$TMPDIR/traffic-stats.buf"
-CFG="$TMPDIR/config.yaml"
 API="http://$CTRL_HOST:$CTRL_PORT/connections"
 
 mkdir -p "$STATS_DIR" "$TMPDIR" 2>/dev/null
