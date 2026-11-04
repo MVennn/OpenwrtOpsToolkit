@@ -93,14 +93,16 @@ sh openwrt/post-sc-update.sh check    # 只检查，不恢复
 
 ```sh
 # 1) 脚本与配置
-scp -r openwrt/conf root@<路由器>:/etc/openwrt-ops/    # 配置
+scp openwrt/conf/device.conf root@<路由器>:/etc/openwrt-ops/device.conf    # 配置（脚本按此路径加载）
 scp openwrt/guardian.sh root@<路由器>:/etc/ShellCrash/guardian.sh
 scp openwrt/bulk-guard.sh root@<路由器>:/etc/ShellCrash/bulk-guard.sh
-ssh root@<路由器> 'chmod +x /etc/ShellCrash/guardian.sh /etc/ShellCrash/bulk-guard.sh'
+scp openwrt/traffic-stats.sh root@<路由器>:/etc/ShellCrash/traffic-stats.sh
+ssh root@<路由器> 'chmod +x /etc/ShellCrash/guardian.sh /etc/ShellCrash/bulk-guard.sh /etc/ShellCrash/traffic-stats.sh'
 
-# 2) 挂 cron（守护每 5 分钟；大流量守卫每 3 分钟）
+# 2) 挂 cron（守护每 5 分钟；大流量守卫每 3 分钟；流量统计每分钟）
 ssh root@<路由器> 'echo "*/5 * * * * /bin/ash /etc/ShellCrash/guardian.sh" >> /etc/crontabs/root'
 ssh root@<路由器> 'echo "*/3 * * * * /bin/ash /etc/ShellCrash/bulk-guard.sh" >> /etc/crontabs/root'
+ssh root@<路由器> 'echo "* * * * * /bin/ash /etc/ShellCrash/traffic-stats.sh" >> /etc/crontabs/root'
 ssh root@<路由器> '/etc/init.d/cron restart'
 
 # 3) 开机自启：先备份再覆盖

@@ -7,6 +7,15 @@
 
 ---
 
+## [未发布]
+
+### 部署文档闭环与门面脚本依赖提示（2026-11-04）
+
+- `openwrt/README.md` §3：配置改为单文件落点 `/etc/openwrt-ops/device.conf`，
+  与脚本查找路径一致（重装时不再嵌套成 `conf/device.conf` 而静默不加载）
+- §3 补 `traffic-stats.sh` 的 scp / chmod / cron（0.3.0 新增脚本后部署清单漏项）
+- `tools/make_social_preview.py` 缺 numpy/Pillow 时给出安装提示，不再裸 traceback
+
 ## [0.3.0] — 2026-11-01
 
 ### 守卫脚本 bug 奇偶同步（2026-11-01）

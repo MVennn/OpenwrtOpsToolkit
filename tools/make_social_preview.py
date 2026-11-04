@@ -22,8 +22,14 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
-import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+try:
+    import numpy as np
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
+except ImportError as e:
+    raise SystemExit(
+        "make_social_preview.py 需要第三方依赖 numpy 与 Pillow（其余工具只用标准库）。\n"
+        "安装: pip install numpy pillow"
+    ) from e
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
