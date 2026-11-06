@@ -403,7 +403,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | 能力 | 函数 | 说明 |
 |---|---|---|
 | 建连 | `open_socket(timeout)` | 按 `MIHOMO_HOST` 里有没有 `:` 选 `AF_INET6` / `AF_INET` |
-| 请求头 | `host_header()` / `auth_header()` | IPv6 字面量自动加方括号；`Authorization: Bearer <secret>` |
+| 请求头 | `host_header()` / `auth_header()` | IPv6 字面量自动加方括号；`Authorization: Bearer <REDACTED-MIHOMO-SECRET>` |
 | 原始请求 | `_raw_request()` | 手写 HTTP/1.1 + `Connection: close` + **chunked 解码** |
 | 带重试的调用 | `api(path, method, body, tries=12, timeout=15)` | 每次失败隔 0.6 秒重试，12 次后抛 `RuntimeError` |
 | DNS 查询 | `dns_query(name, rtype="A")` | 打 `/dns/query` |

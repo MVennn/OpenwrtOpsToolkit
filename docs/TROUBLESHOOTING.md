@@ -164,13 +164,13 @@
    或者用控制面工具（更方便）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py proxies "<组名>"
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py proxies "<组名>"
    ```
 
 2. **看真实出口**（组可能还套着「手动切换」这一层）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py proxies
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py proxies
    ```
 
    `mihomo/mihomo_api.py proxies` 会打印每个组的 `type` / `now` / `udp`。
@@ -234,7 +234,7 @@
 3. **看规则在列表里的位置** —— 靠后的规则可能被靠前的宽泛规则遮蔽：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py rulestats
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py rulestats
    ```
 
 4. **要精确答案就跑审计**（离线读 `config.yaml` + `proxies.json`）：
@@ -250,7 +250,7 @@
 5. **看某条规则实际命中了什么**（运行态证据）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py conns
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
    输出里有 `rule=`（命中的规则类型）、`payload=`（命中的规则内容）、`chains=`（走的组链）。
@@ -258,7 +258,7 @@
 6. **要抓某个域名到底走了哪条规则**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_rule_probe.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
 ### 原因 / 解法
@@ -280,13 +280,13 @@
 1. **先看这个域名现在解析到什么**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py dns <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py dns <域名>
    ```
 
 2. **看它落在 cn 规则集内还是外**（决定 DNS 走国内还是境外）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_domain_classify.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_domain_classify.py <域名>
    ```
 
    输出 `国内DNS` / `境外DNS` / `明文DNS` 与判定。
@@ -295,19 +295,19 @@
 3. **换个角度交叉验证**（看路由器**新产生**的 DNS 上游连接）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_dns_path.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_dns_path.py <域名>
    ```
 
 4. **看它命中了哪条规则**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_rule_probe.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
 5. **看当前有没有连接、走的哪条链**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py conns
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
 ### 原因 / 解法
@@ -350,13 +350,13 @@
 3. **看这个域名在 cn 规则集内还是外**（走错通道是 CDN 打不开的头号原因）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_domain_classify.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_domain_classify.py <域名>
    ```
 
 4. **看它命中了哪条规则**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 cdn/qq_rule_probe.py <域名>
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
 ### 原因 / 解法
@@ -398,7 +398,7 @@
 3. **看 mihomo 里的连接是不是停在半截**：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py conns
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
 4. **对照实验**：临时全局拦掉 UDP 443/8443 再复测浏览器 ——
@@ -581,7 +581,7 @@
 ### 原因 / 解法
 
 - **secret 换了但没同步**：控制台开了 secret，所有 API 调用必须带
-  `Authorization: Bearer <secret>`，否则一律 401。
+  `Authorization: Bearer <REDACTED-MIHOMO-SECRET>`，否则一律 401。
 - **secret 配在错的地方**：本仓**不存凭据**（见 [SECRETS.md](SECRETS.md)），
   真值只在设备上。
 
@@ -602,8 +602,8 @@
 2. **看实况**（运行态证据）：
 
    ```sh
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py conns
-   MIHOMO_SECRET=xxx python3 mihomo/mihomo_api.py rulestats
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
+   MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py rulestats
    ```
 
 3. **看有没有 `error.yaml`**（被回退过）：

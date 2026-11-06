@@ -10,7 +10,7 @@ cp openwrt/conf/device.conf.example openwrt/conf/device.conf
 
 # 诊断类工具（只读）
 python3 mihomo/rule_audit.py --help
-MIHOMO_API=http://127.0.0.1:9999 MIHOMO_SECRET=xxx python3 mihomo/latency_probe.py
+MIHOMO_API=http://127.0.0.1:9999 MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/latency_probe.py
 
 # 设备侧脚本：先干跑
 sh openwrt/guardian.sh --dry-run

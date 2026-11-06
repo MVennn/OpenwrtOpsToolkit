@@ -44,7 +44,7 @@
 3. 先跑只读诊断，结论对得上再谈修：
 
    ```sh
-   MIHOMO_API=http://127.0.0.1:9999 MIHOMO_SECRET=xxx python3 mihomo/latency_probe.py
+   MIHOMO_API=http://127.0.0.1:9999 MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/latency_probe.py
    ```
 
 4. 要装守护，先干跑：`sh openwrt/guardian.sh --dry-run` 只检测、不动你的设备；确认没问题再去掉 `--dry-run`。
@@ -79,7 +79,7 @@
 | 项目 | 用途 |
 |---|---|
 | [**OpenWrt**](https://openwrt.org/) | 目标平台：`/etc/rc.local`、`fw4`/`nft`、busybox 工具链 |
-| [**ShellCrash**](https://github.com/nekoii/shellcrash) | 代理配置生成与运行时（`openwrt/` 脚本面向它的目录约定，不含其代码） |
+| [**ShellCrash**](https://github.com/juewuy/ShellCrash) | 代理配置生成与运行时（`openwrt/` 脚本面向它的目录约定，不含其代码） |
 | [**mihomo**](https://github.com/MetaCubeX/mihomo) | 代理内核与控制 API（`mihomo/` `cdn/` 诊断工具面向它的 RESTful API） |
 | [**Python**](https://www.python.org/) | 诊断工具的运行时（标准库为主） |
 

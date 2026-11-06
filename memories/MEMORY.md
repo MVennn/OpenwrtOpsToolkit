@@ -2,7 +2,7 @@
 
 > **一句话**：本工具箱的**记忆文档** —— 踩过的坑、根因、实测结论。
 >
-> 同样内容也存在于 ZCode 的记忆库（按项目 id 分目录），这里是**随 git 版本化的快照**。
+> 正本在 dsh-mnemon 的「项目记忆：OpenwrtOpsToolkit」Document（~/.mnemon），这里是**随 git 版本化的快照**；路由见 ~/.dsh/skills/on-demand/DOCUMENTS-ROUTING.md。
 > 一条一件事，文件名 kebab-case；敏感值写 `<REDACTED-...>` 占位符。
 
 - [redir-mode-udp-quic-leak](redir-mode-udp-quic-leak.md) — OpenWrt 透明代理(Redir)模式下 UDP 全部绕过代理，浏览器 QUIC 直出带国内 IP，导致网页外壳能开但 UI 加载不全
