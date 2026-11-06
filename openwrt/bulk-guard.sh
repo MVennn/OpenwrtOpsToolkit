@@ -419,6 +419,7 @@ switch_airport() {
   fi
   if [ "$(put "$GROUP" "$AIRPORT")" = "204" ]; then
     state_set cooldown_until $((NOW_TS + RETURN_COOLDOWN))
+    state_set last_moving "$NOW_TS"   # 切到机场的这一刻即「刚活动」，回切空闲从此刻起算
     state_set fails 0
     log "FIX: 「$GROUP」切到「$AIRPORT」：$_why（机场停留 ${RETURN_COOLDOWN}s）"
   else
@@ -541,7 +542,11 @@ NOW_TS=$(date +%s)
 CU=$(state_get cooldown_until); CU=${CU:-0}
 LAST=$(state_get last_probe); LAST=${LAST:-0}
 FAILS=$(state_get fails); FAILS=${FAILS:-0}
-LAST_MOVING=$(state_get last_moving); LAST_MOVING=${LAST_MOVING:-0}
+LAST_MOVING=$(state_get last_moving)
+# 状态缺失/为 0（首次运行、tmpfs 重建）时按「此刻刚活动」算：直接当 0 用会让
+# NOW-LAST_MOVING 恒为整个 epoch（日志里出现「已空闲 29898910 分钟」），
+# 回切判据与「清已试」判据同时被击穿。
+case "$LAST_MOVING" in ''|0|*[!0-9]*) LAST_MOVING=$NOW_TS ;; esac
 
 if [ "$MODE" = "--status" ]; then
   echo "组: $GROUP"
@@ -647,7 +652,11 @@ else
   if [ "$MOVING" = "1" ]; then
     state_set last_moving "$NOW_TS"
   else
-    LAST_MOVING=$(state_get last_moving); LAST_MOVING=${LAST_MOVING:-0}
+    LAST_MOVING=$(state_get last_moving)
+    # 状态缺失/为 0（首次运行、tmpfs 重建）时按「此刻刚活动」算：直接当 0 用会让
+    # NOW-LAST_MOVING 恒为整个 epoch（日志里出现「已空闲 29898910 分钟」），
+    # 回切判据与「清已试」判据同时被击穿。
+    case "$LAST_MOVING" in ''|0|*[!0-9]*) LAST_MOVING=$NOW_TS ;; esac
     if [ $((NOW_TS - LAST_MOVING)) -ge "$IDLE_SWITCH" ] && [ "$NOW_TS" -ge "$CU" ]; then
       # 回切前先确认池子里真有能承载大流量的节点：空池的 url-test 只剩
       # COMPATIBLE（= 直连），切回去等于把大流量（含 Telegram）送进直连。
