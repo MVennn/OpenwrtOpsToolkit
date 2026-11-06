@@ -11,7 +11,7 @@
 | 文件 | 干什么 | 典型调用 |
 |---|---|---|
 | `guardian.sh` | 网络守护：核心存活、nft 表补载、策略组出口复原、出口健康、`/tmp` 水位 | cron `*/5 * * * *`（试跑加 `--dry-run`） |
-| `traffic-stats.sh` | 流量归因：采样 mihomo `/connections`，按「命中的策略组 + 域名」累计字节（nlbwmon 只按设备记，回答不了「机场流量被谁吃了」） | cron `* * * * *`（`--report` 看当日按组/按域名的累计） |
+| `traffic-stats.sh` | 流量归因：采样 mihomo `/connections`，按「命中的策略组 + 域名」累计字节（nlbwmon 只按设备记，回答不了「机场流量被谁吃了」） | cron `* * * * *`（`--report` 看当日按组/按域名的累计；`--summary` 跨天按「机场出口 / 直连 / 兜底」分账，再给按组合计与域名 top20） |
 | `bulk-guard.sh` | 大流量组守卫：按**真实吞吐**决定走公共池还是机场；慢时先在公共池内按吞吐缓存换节点（mihomo 的 `url-test`/`fallback` 只测首包，不测带宽） | cron `*/3 * * * *`（`--status` 看当前判定，`--dry-run` 只报告） |
 | `recover-now.sh` | 离线恢复：DNS 解析全失败 / 代理离线 / 「连上 WiFi 但没网」 | 人工，或 Windows 侧推过去跑 |
 | `rc.local` | 开机自启**模板**：建 tmpfs 运行时目录、兜底重建 `/var`、按需加载 nft 表 | 覆盖 `/etc/rc.local` |

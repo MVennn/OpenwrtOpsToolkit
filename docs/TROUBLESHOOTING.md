@@ -773,6 +773,16 @@
    注意：当日 tsv 是**聚合落盘**的 —— 差值先攒在 `/tmp` 缓冲，默认每 10 分钟
    （`STATS_FLUSH_MIN`）才合并一次，刚发生的流量要等一个间隔才进文件，属正常。
 
+   刚恢复 cron 时**先看缓冲再看 tsv**：
+
+   ```sh
+   ls -l /tmp/ShellCrash/traffic-stats.buf.* /etc/ShellCrash/stats/
+   ```
+
+   `traffic-stats.buf.YYYY-MM-DD` 是当天的差值缓冲、`traffic-stats.buf.ts` 是落盘节拍锚点。
+   缓冲在涨而 tsv 不长 = 还没到落盘间隔（正常）；两个都不长 = 本轮采样没产出，
+   往第 2、3 步查（核心 / 端口 / secret）。
+
 2. **手动采样一次**（secret 读不到会打一行 stderr 提示）：
 
    ```sh
@@ -793,7 +803,21 @@
    > grep 无输出但 `cut` 退出码是 0，`||` 不触发，端口会拼成空 —— 这正是本条
    > 最初版命令的真实 bug（2026-11-01 真机复现）。
 
-4. **cron 在不在**：`grep traffic-stats /etc/crontabs/root` 应有 `* * * * *` 一行。
+4. **cron 在不在**：`grep traffic-stats /etc/crontabs/root` 应有
+   `* * * * * /bin/ash /etc/ShellCrash/traffic-stats.sh` 一行。
+
+   > 本仓 `openwrt/guardian.sh` 收尾的 cron lifeline 只补 legacy 看门狗行
+   > （日志 `FIX: restored legacy watchdog cron line`），`recover-now.sh` §5 与
+   > `post-sc-update.sh` §2 也只补 guardian / 看门狗 / `task.sh 106` 三行。
+   > 设备上实际跑的 `guardian.sh` 正本在 **AX3000TOpenwrt 仓**（`guardian/guardian.sh`），
+   > 自 2026-11-06 起它会顺手补回这一行，日志写 `FIX: restored traffic-stats cron line`。
+   > 若 `/tmp/ShellCrash/guardian.log` 里没有这句，说明设备上是旧版 guardian —— 先同步脚本，
+   > 或按下面手工补回：
+   >
+   > ```sh
+   > echo "* * * * * /bin/ash /etc/ShellCrash/traffic-stats.sh" >> /etc/crontabs/root
+   > crontab /etc/crontabs/root
+   > ```
 
 ### 原因 / 解法
 

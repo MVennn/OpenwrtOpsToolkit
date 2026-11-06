@@ -7,6 +7,49 @@
 
 ---
 
+## [未发布] — 待发 0.5.0
+
+> 本次含新功能（`traffic-stats.sh --summary`），按 [docs/VERSIONING.md](docs/VERSIONING.md) §1
+> 走「次版本」那档：发版时把本段标题改成 `## [0.5.0] — <发版日期>`，并补
+> `docs/release-notes/0.5.0.md`。**本次未打 tag、未发版。**
+
+### traffic-stats.sh 新增 --summary 跨天分账（2026-11-06）
+
+- 新增 `openwrt/traffic-stats.sh --summary`：把 `$STATS_DIR` 下所有 `YYYY-MM-DD.tsv`
+  合成一张账 —— 先按「机场出口 / 直连 / 兜底」三分类分账，再给按组合计 top15 与域名 top20。
+  `--report` 只看单日，答不了「这段时间机场流量被谁吃了」
+- 分账口径可覆盖：`STATS_AIRPORT_GROUPS` / `STATS_DIRECT_GROUPS`（`|` 分隔的扩展正则，
+  匹配 tsv 里的策略组名）。默认是一份通用占位口径 —— 组名换了自己覆盖，不用改脚本
+- 只读 `$STATS_DIR` 下的 tsv：不采样、不落盘、不写状态；`--report`（按天打印）与
+  `STATS_DIR` / `STATS_FLUSH_MIN`（默认 10 分钟攒批，0 = 逐分钟）行为一行未动
+- 为什么：跨天看「机场 vs 直连 vs 兜底」占比，才能判断某段流量该不该走机场；
+  逐日 `--report` 加总要人肉做，且组名一多就漏
+- 验证：设备 4 天数据跑 `--summary` —— 总量 120.7 MB、机场出口 40.8 MB（33.8%）、
+  直连 69.1 MB（57.2%）、兜底 10.8 MB（9.0%），三段相加等于总量，与逐日 `--report` 对得上
+
+### bulk-guard.sh 空闲计时缺陷修复（2026-11-06）
+
+- 修 `LAST_MOVING` 的缺省值：`LAST_MOVING=$(state_get last_moving)` 之后原写
+  `LAST_MOVING=${LAST_MOVING:-0}`，状态里没这个键时取 0 → `NOW_TS - LAST_MOVING`
+  恒等于整个 epoch，回切判据 `-ge $IDLE_SWITCH` 与「清已试」判据 `-gt $IDLE_SWITCH`
+  同时被击穿。改为 `case "$LAST_MOVING" in ''|0|*[!0-9]*) LAST_MOVING=$NOW_TS ;; esac`
+  （两处：状态读取段、回切判定段）
+- 修 `switch_airport()` 只写 `cooldown_until` 不写 `last_moving` —— 切到机场那一刻没被
+  记为「刚活动」，回切空闲仍从上一个会话的时间戳起算；补 `state_set last_moving "$NOW_TS"`
+- 新增可覆盖变量 `BULK_MIN_BPS`（空闲探测阈值，bytes/sec），内置默认仍是 800000。
+  设备侧 `device.conf` 按实际链路设为 600000（≈持续 5.9 Mbps），
+  `BULK_RETURN_COOLDOWN` 由 1200 调到 3600
+- 为什么：设备日志出现「机场已空闲 29898910 分钟」（≈57 年），组每 20 分钟在机场与公共池
+  之间来回切，机场停留形同虚设。阈值贴着实际速率是放大器 —— 探测值在阈值两侧跳，
+  就会一直重演「切过去 → 判空闲 → 切回来」
+- 验证：`sh -n` 过、仓内与设备 md5 一致；设备跑 `--status` 读到「回切: 机场停留 3600s
+  且空闲 300s」「阈值: 585 KB/s」（= `BULK_RETURN_COOLDOWN=3600` 与 `BULK_MIN_BPS=600000`
+  已生效），`--dry-run` rc=0 无异常动作；旧版日志里「机场已空闲 29898910 分钟」这类
+  五位数空闲分钟不再出现
+- 文档：[docs/PITFALLS.md](docs/PITFALLS.md) P45、[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) §16、
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.5 / §4.6、[docs/TOOLS.md](docs/TOOLS.md) 工具表、
+  [openwrt/conf/device.conf.example](openwrt/conf/device.conf.example)、[openwrt/README.md](openwrt/README.md)
+
 ## [0.4.0] — 2026-11-06
 
 ### 门禁脚本 GBK 控制台自毁修复（2026-11-04）

@@ -166,6 +166,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | `BULK_PROBE_INTERVAL` / `BULK_LIVE_MIN_BPS` / `BULK_LIVE_SAMPLE_SEC` | — | ✅ | — | — | — | — | 用内置默认值 |
 | `BULK_MAX_TRY` / `BULK_SPEED_TTL` / `BULK_SETTLE_SEC` / `BULK_IDLE_SWITCH` / `BULK_RETURN_COOLDOWN` | — | ✅ | — | — | — | — | 用内置默认值；`BULK_COOLDOWN` 是 `BULK_RETURN_COOLDOWN` 的旧名，仍兼容 |
 | `BULK_STATE` / `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK` / `BULK_LOG` | — | ✅ | — | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
+| `STATS_FLUSH_MIN` / `STATS_AIRPORT_GROUPS` / `STATS_DIRECT_GROUPS` | — | — | ✅ | — | — | — | 用内置默认值（10 分钟攒批 / 内置分账正则，组名换了才需覆盖） |
 | `GUARDIAN_LOG` | ✅ | — | — | — | — | — | 用默认 `$RUNTIME_DIR/guardian.log` |
 | `RECOVER_LOG` | — | — | — | ✅ | — | — | 用默认 `/root/recover-last.log` |
 | `POST_SC_LOG` | — | — | — | — | — | ✅ | 用默认 `/root/post-sc-update.log` |
@@ -340,6 +341,10 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
    「在传」的连接 → **先在池子里找一个 gstatic + 大流量探测双通的节点**（`pick_live_node_n`，
    最多试 3 个），找到才钉住并切回 `BULK_PUBLIC`；找不到就留在机场，
    每 `POOL_EMPTY_LOG_TTL`（6 小时）记一次 `WARN`，不切回。
+   「空闲多久」记在状态键 `last_moving` 上：`switch_airport()` 切到机场时连
+   `cooldown_until` 一起写 `last_moving = 当时时间戳`（切过去那一刻即视为刚活动），
+   看到「在传」的连接时也会刷新；读取时**缺键 / 为 0 / 非数字一律回填当前时间** ——
+   否则 `now − last_moving` 会等于整个 epoch（见 [PITFALLS.md](PITFALLS.md) P45）。
 5. **钉住节点的健康检查**：`BULK_PUBLIC` 被钉住后 URLTest 不再自动切换（控制 API
    只能钉、不能解钉），所以每轮先用 `node_bulk_alive()` 测钉住的节点
    （`PROBE_URL`，不是 gstatic）；不合格就换一个能承载大流量的，全都不行就切机场。

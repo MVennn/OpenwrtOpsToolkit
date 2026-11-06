@@ -515,3 +515,24 @@
   非 GBK 字符降级成 `?` 而不是抛异常。同一问题首次记录见 ZcodeAIModels 仓「踩坑总汇」第 36 节（跨仓引用，非本仓路径）。
 - **验证**：`python -I tools/check-docs.py` → `[OK] …`、退出码 0；反证：把 `✓` 改回原样，
   同一命令退出码 1 并抛 `UnicodeEncodeError`。
+
+### P45 状态文件缺键取 0 当兜底，`now − key` 会等于整个 epoch
+
+- **现象**：`bulk-guard.sh` 日志出现「机场已空闲 29898910 分钟」（≈57 年），
+  之后每轮 cron 都在机场与公共池之间来回切，约 20 分钟抖动一次。
+- **根因**：`LAST_MOVING=$(state_get last_moving)` 之后紧接
+  `LAST_MOVING=${LAST_MOVING:-0}` —— 状态文件里没有这个键（新装、换过 `BULK_STATE`、
+  `/tmp` 重启被清）时取到 0，`NOW_TS - LAST_MOVING` 就等于自 1970 年以来的秒数。
+  回切判据 `-ge $IDLE_SWITCH` 与「清已试」判据 `-gt $IDLE_SWITCH` 同时被击穿，
+  于是每轮都判「空闲够久」。
+- **解法**：缺键 / 为 0 / 非数字一律**回填当前时间** ——
+  `case "$LAST_MOVING" in ''|0|*[!0-9]*) LAST_MOVING=$NOW_TS ;; esac`
+  （两处：状态读取段、回切判定段）。同时让 `switch_airport()` 除写 `cooldown_until`
+  外也写 `state_set last_moving "$NOW_TS"` —— 切到机场那一刻就是「刚活动」，
+  否则回切空闲仍从上一个会话的时间戳起算。
+- **下次怎么避**：任何「时间戳相减」的判据，缺省值都不能是 0（0 是 1970 年）；
+  状态文件里的每个时间键都要有「缺失即当前时间」的兜底，
+  并且**所有改变状态的路径**都要写一遍那个键，别只在一条分支里写。
+- **验证**：把 `BULK_STATE` 指向一个不存在的临时文件（模拟缺键）跑 `--dry-run`，
+  不应出现五位数空闲分钟、也不应触发回切；`--status` 的「回切:」一行门槛应与
+  `device.conf` 里配的停留/空闲秒数一致。阈值贴边导致的抖动另见 CHANGELOG 2026-11-06。

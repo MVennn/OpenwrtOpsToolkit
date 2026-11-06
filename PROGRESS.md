@@ -272,3 +272,41 @@ EOF / HTTP 502。旧 `bulk-guard.sh` 的 `node_alive()` 只测 gstatic，钉点/
 - Telegram 是否单独成组（空池时回落机场）属 ShellcrashRules 的策略取舍
 
 ## 状态: 已完成
+
+---
+
+# 2026-11-06 现网监控数据回灌与调优
+
+## 背景
+- 归因采集中断：`/etc/crontabs/root` 里 traffic-stats 的每分钟行在 2026-11-02 10:14 之后丢失，
+  stats 只剩 10-30～11-02 四个文件；脚本手动跑 exit=0 且有 state 产出 —— 是 cron 行被冲掉，不是脚本坏。
+- 守卫抖动：bulk-guard.log 出现「机场已空闲 29898910 分钟」（≈57 年），组每 20 分钟在机场与公共池之间来回切。
+- 4 天真实样本 262 行 / 120.7 MB：直连 69.3（56.9%）、机场 41.6（34.2%）、兜底 10.8（8.9%）。
+
+## 已完成变更
+- [x] `bulk-guard.sh` 修 `LAST_MOVING` 缺省值（两处 `case … ''|0|*[!0-9]*) LAST_MOVING=$NOW_TS`）；
+      `switch_airport()` 补 `state_set last_moving`（PITFALLS P45）
+- [x] `bulk-guard.sh` 新增可覆盖变量 `BULK_MIN_BPS`（内置默认仍是 800000）
+- [x] `traffic-stats.sh` 新增 `--summary`：跨天「机场/直连/兜底」分账 + 按组 top15 + 域名 top20，
+      口径可用 `STATS_AIRPORT_GROUPS` / `STATS_DIRECT_GROUPS` 覆盖
+- [x] 设备 `device.conf`：`BULK_RETURN_COOLDOWN` 1200 → 3600、新增 `BULK_MIN_BPS=600000`
+- [x] 设备 crontab 补回 `* * * * * /bin/ash /etc/ShellCrash/traffic-stats.sh`（第 10 行）
+- [x] 文档：ARCHITECTURE §3.5 / §4.6、PITFALLS P45、TOOLS、TROUBLESHOOTING §16、openwrt/README、
+      `conf/device.conf.example`、CHANGELOG
+
+## 自检
+- `sh -n` 三个脚本与 `device.conf` ✓；设备与仓内 md5 一致（bulk-guard `d53b8aaf…`、traffic-stats `62d6db1c…`）
+- 真机 `--status`：「阈值: 585 KB/s」「回切: 机场停留 3600s 且空闲 300s」✓
+- 真机落盘：21:40 首次 flush `stats/2026-11-06.tsv`（15 行），`buf.ts` 随之推进 ✓
+- `--summary` 设备实跑：121.8 MB / 机场 34.2% / 直连 56.9% / 兜底 8.9% ✓
+- `check-docs.py` ✓（23 篇）、`check-secrets.py` ✓（61 文件）
+
+## 未做（已记录）
+- `steamstatic` / `steampipe` 约 8.1 MB/4 天仍走机场：`rules.yaml:25` 有直连实测反例（8.7 vs 83 KB/s），
+  等守卫稳定一轮再评估
+- DoH 域名归位（`cloudflare-dns.com` / `doh.opendns.com` 合计 1.9 MB/4 天）：改它要同步
+  `ai-rules-update.sh` 生成器，收益抵不上成本
+- 本仓 `openwrt/guardian.sh`（未部署的可移植版）暂无 traffic-stats cron 自愈；设备正本在
+  AX3000TOpenwrt 仓 `guardian/guardian.sh`，通用版是否同步待定
+
+## 状态: 已完成
