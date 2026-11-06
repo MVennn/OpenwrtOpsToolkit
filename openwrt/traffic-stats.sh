@@ -101,6 +101,44 @@ if [ "$1" = "--report" ]; then
 	exit 0
 fi
 
+# ------------------------------------------------------- 汇总模式（跨天）
+# --summary：把 $STATS_DIR 下所有 tsv 合成一张账 —— 分账（机场出口 / 直连 / 兜底）
+#   + 按组合计 + 域名 top20。回答「这段时间机场流量被谁吃了」。
+#   组名改了就覆盖 STATS_AIRPORT_GROUPS / STATS_DIRECT_GROUPS（`|` 分隔的 ERE）。
+if [ "$1" = "--summary" ]; then
+	AG="${STATS_AIRPORT_GROUPS:-🚀 节点选择|🤖 干净出口|🤖 AI接口|🤖 人工智能|🔗 GitHub 出口|🎬 B站解锁|🎥 NETFLIX|𝕏 媒体|♻️ 自动选择}"
+	DG="${STATS_DIRECT_GROUPS:-^DIRECT$|🎯 全球直连}"
+	_n=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | grep -c . 2>/dev/null)
+	_f=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | head -1)
+	_l=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | tail -1)
+	_f=${_f##*/}; _f=${_f%.tsv}
+	_l=${_l##*/}; _l=${_l%.tsv}
+	echo "=== 汇总：${_n:-0} 个统计日（${_f:-?} ~ ${_l:-?}）==="
+	cat "$STATS_DIR"/*.tsv 2>/dev/null | awk -F'\t' -v air="$AG" -v dir="$DG" '
+	{ u = $3 + 0; d = $4 + 0; T += u + d
+	  if ($1 ~ air)      A += u + d
+	  else if ($1 ~ dir) D += u + d
+	  else               O += u + d }
+	END {
+	  if (T == 0) { print "（没有数据）"; exit }
+	  printf "总量        %9.1f MB\n", T / 1048576
+	  printf "机场出口    %9.1f MB  %5.1f%%\n", A / 1048576, A * 100 / T
+	  printf "直连        %9.1f MB  %5.1f%%\n", D / 1048576, D * 100 / T
+	  printf "兜底/混合   %9.1f MB  %5.1f%%\n", O / 1048576, O * 100 / T
+	}'
+	echo "-- 按组合计 --"
+	cat "$STATS_DIR"/*.tsv 2>/dev/null \
+		| awk -F'\t' '{ t[$1] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' \
+		| sort -rn | head -15 \
+		| awk -F'\t' '{ printf "  %9.1f MB  %s\n", $1 / 1048576, $2 }'
+	echo "-- 域名 top20 --"
+	cat "$STATS_DIR"/*.tsv 2>/dev/null \
+		| awk -F'\t' '{ t[$2] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' \
+		| sort -rn | head -20 \
+		| awk -F'\t' '{ printf "  %9.1f MB  %s\n", $1 / 1048576, $2 }'
+	exit 0
+fi
+
 # ---------------------------------------------------------------- 采样
 # secret 与 guardian.sh / bulk-guard.sh 同源：运行时从 ShellCrash.cfg 现读。
 # 读不到时按无鉴权请求（核心没开鉴权时这本来就是对的；开了鉴权则本轮 401 无数据）。
