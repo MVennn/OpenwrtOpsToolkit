@@ -176,7 +176,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | `VAR_RUNTIME_DIRS` | — | — | — | — | ✅ | — | 用默认那串 `/var/*` |
 | `PATCH_DIR` / `PATCH_SPEC` | — | — | — | — | — | ✅ | 留空 → 无补丁可恢复 |
 | `CHECK_GROUP` | — | — | — | — | — | ✅ | 留空 → 跳过「自定义组是否加载」校验 |
-| `CORE_BIN` | — | — | — | — | — | ✅ | 用默认 `$CRASHDIR/CrashCore.raw` |
+| `CORE_BIN` | — | — | — | — | — | ✅ | 用默认 `$CRASHDIR/CrashCore.raw`；验收段会按 upx → raw → 运行态软链回退探测（见 §4.5、[PITFALLS.md](PITFALLS.md) P46） |
 | `WARN_INIT_ENABLED` | — | — | — | — | — | ✅ | 用默认 `1` |
 | `TMPFS_CLEAN_FILES` | ✅ | — | — | — | — | — | 用内置白名单 |
 | `DNS_HIJACK_TABLES` | — | — | — | ✅ | — | — | 用默认那组 DNS 劫持表 |
@@ -314,7 +314,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 3. **启动链路兜底检查**：`rc.local` 里有没有建运行时目录、`guardian.sh` 里有没有 `mkdir` 与 cron 自愈、
    `/etc/init.d/shellcrash` 是不是保持 disabled。
 4. **启动**：核心没跑就 `sh $CRASHDIR/start.sh start`，最多等 30 秒。
-5. **验收**：`CrashCore.raw -t` 校验运行态配置、统计分组数与规则数、
+5. **验收**：动态探测 `CrashCore.upx` / `CrashCore.raw` / `$RUNTIME_DIR/CrashCore` 中第一个可执行内核跑 `-t` 校验运行态配置（找不到显式告警，见 [PITFALLS.md](PITFALLS.md) P46）、统计分组数与规则数、
    查 `CHECK_GROUP` 在不在、再各打一次直连与经代理的 HTTP。
 
 **日志**：`$POST_SC_LOG`（默认 `/root/post-sc-update.log`），同样每次开头清空。

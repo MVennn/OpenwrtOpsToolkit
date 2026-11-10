@@ -45,7 +45,7 @@ OpenwrtOpsToolkit/
 | `openwrt/traffic-stats.sh` | 每分钟采样 mihomo `/connections`，按「命中的策略组 + 域名」累计上下行字节（nlbwmon 只按 LAN 主机记账，答不了「机场流量被谁吃了」）；差值先攒 `/tmp` 缓冲，默认每 10 分钟（`STATS_FLUSH_MIN`，0=逐分钟）聚合落盘当日 tsv，只留 31 天；`--report` 按天打印按组 / 按域名累计；`--summary` 跨天合成一张账 —— 按「机场出口 / 直连 / 兜底」三分类分账 + 按组合计 top15 + 域名 top20（分账口径用 `STATS_AIRPORT_GROUPS` / `STATS_DIRECT_GROUPS` 覆盖，见 `openwrt/conf/device.conf.example`） | ⚠️ 会（写 `$CRASHDIR/stats/` 当日统计与 `$RUNTIME_DIR` 采样状态；不切组、不改配置） |
 | `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
 | `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |
-| `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁 | ⚠️ 会（覆盖 starts/ 下三个文件） |
+| `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁；验收段按 `CrashCore.upx` → `CrashCore.raw` → 运行态软链动态探测内核跑 `-t`（见 [PITFALLS.md](PITFALLS.md) P46） | ⚠️ 会（覆盖 starts/ 下三个文件） |
 | `mihomo/*.py` | 诊断 | ❌ 只读 |
 | `cdn/*.py` | 诊断 | ❌ 只读 |
 

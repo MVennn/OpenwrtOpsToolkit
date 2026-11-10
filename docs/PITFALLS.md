@@ -536,3 +536,26 @@
 - **验证**：把 `BULK_STATE` 指向一个不存在的临时文件（模拟缺键）跑 `--dry-run`，
   不应出现五位数空闲分钟、也不应触发回切；`--status` 的「回切:」一行门槛应与
   `device.conf` 里配的停留/空闲秒数一致。阈值贴边导致的抖动另见 CHANGELOG 2026-11-06。
+
+### P46 升级后验收写死 `CrashCore.raw`，upx 内核设备静默漏掉 `-t` 校验 【通用】
+
+- **现象**：ShellCrash 1.9.5beta3 起提供 upx 压缩内核（`CrashCore.upx`）。设备 2026-11-10
+  实况只有 `/etc/ShellCrash/CrashCore.upx` + `/tmp/ShellCrash/CrashCore` 软链，
+  **没有** `CrashCore.raw`。`openwrt/post-sc-update.sh` 验收段原先
+  `if [ -x "$CORE_BIN" ]; then "$CORE_BIN" -t …; fi`，`CORE_BIN` 默认就是 `.raw` →
+  条件不成立就**静默跳过** `-t`，日志照样写「===== 5. 验收 =====」和分组数 / 规则数，
+  配置错了也看不出来（设备 `/root/post-sc-update.log` 尾段正是「分组数：30 规则数：0」无 `-t` 行）。
+  ShellcrashRules 仓的 `config/post-sc-update.sh:96` 更直接：写死 `.raw` 会报 `not found`。
+- **根因**：内核文件名随版本分支变 —— 精简 / 标准版是 `CrashCore.upx`，旧版是
+  `CrashCore.raw`，运行态统一是 `$RUNTIME_DIR/CrashCore` 软链。把 `-t` 挂在某个具体
+  文件名上，另外两种布局就漏校验；而「跳过」分支不留日志时，巡检会假绿。
+- **解法**：验收段改成 `CORE_BIN` 显式覆盖优先（`-x` 命中即用），否则按
+  **`CrashCore.upx` → `CrashCore.raw` → `$RUNTIME_DIR/CrashCore`** 顺序探测第一个 `[ -x ]`
+  的内核，找到 `log "配置校验内核：$CHECK_BIN"` 再跑 `-t`；三者都不在时显式 log
+  `!! 未找到可执行内核…跳过 -t 校验`。`:175/:189` 的 `pidof "$CORE_PROC"` 启动链路一行不动。
+- **下次怎么避**：要 exec 内核做校验 / 取版本，路径一律走「候选列表 + `-x` 探测」；
+  验收段的跳过分支必须留日志。同一根因在 ShellcrashRules 仓 `docs/PITFALLS.md` §44 也有记录（跨仓，路径按本地 clone 调整）。
+- **验证**：五场景 fixture（upx+raw→选 upx / 仅 raw→兼容旧环境 / 仅软链→回退 / 全无→
+  显式告警 / `CORE_BIN` 显式覆盖→不回退）全过；设备实况探测命中
+  `/etc/ShellCrash/CrashCore.upx`（v1.19.28）；`sh -n` rc=0、仓内与设备 md5 均
+  `8e908bdcb3773b3af5c97a18f476a08e`（226 行）。

@@ -35,7 +35,7 @@
 | 本机 | `mihomo/` `cdn/` 需要 Python 3.8+（只用标准库，`rule_audit.py` 另需 PyYAML）；`openwrt/` 是纯 shell |
 | 网络 | 诊断工具要能连到 mihomo 控制 API（默认 `http://127.0.0.1:9999`） |
 
-已验证环境是小米 AX3000T / OpenWrt 25.12.6 / mihomo v1.19.32 / ShellCrash；脚本只依赖上面列的通用能力。
+已验证环境是小米 AX3000T / OpenWrt 25.12.6 / ShellCrash；mihomo 版本按实测为准 ——2026-11-10 11:06 设备已升级到现役 `v1.19.33`（`CrashCore.upx` 15,007,192 B，运行态 `/version` 同步），此前 `v1.19.28` 为 10/20 装入的旧核、`v1.19.32` 仅在 2026-10-20 短暂手动升级后被自动更新回退（见 [CHANGELOG.md](CHANGELOG.md) 与 ShellCrash 内核版本口径）。脚本只依赖上面列的通用能力。
 
 ## 使用
 

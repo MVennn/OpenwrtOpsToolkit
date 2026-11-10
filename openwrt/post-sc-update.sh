@@ -193,8 +193,22 @@ fi
 section "5. 验收"
 RCFG="$RUNTIME_DIR/config.yaml"
 if [ -s "$RCFG" ]; then
+  # 内核文件名随版本分支变化：精简/标准版是 CrashCore.upx，旧版是 CrashCore.raw，
+  # 运行态还可能是软链 $RUNTIME_DIR/CrashCore —— 默认只认 raw 时升级后会静默漏掉 -t 校验。
+  # CORE_BIN 仍可由配置显式覆盖；仅当它不存在时按 upx → raw → 运行态软链顺序回退探测。
   if [ -x "$CORE_BIN" ]; then
-    "$CORE_BIN" -t -d "$CRASHDIR" -f "$RCFG" 2>&1 | tail -3 | tee -a "$LOG"
+    CHECK_BIN=$CORE_BIN
+  else
+    CHECK_BIN=""
+    for c in "$CRASHDIR"/CrashCore.upx "$CRASHDIR"/CrashCore.raw "$RUNTIME_DIR/CrashCore"; do
+      if [ -x "$c" ]; then CHECK_BIN=$c; break; fi
+    done
+  fi
+  if [ -n "$CHECK_BIN" ]; then
+    log "配置校验内核：$CHECK_BIN"
+    "$CHECK_BIN" -t -d "$CRASHDIR" -f "$RCFG" 2>&1 | tail -3 | tee -a "$LOG"
+  else
+    log "!! 未找到可执行内核（CrashCore.upx / CrashCore.raw / $RUNTIME_DIR/CrashCore），跳过 -t 校验"
   fi
   log "分组数：$(awk '/^proxy-groups:/{f=1;next} /^[a-z-]+:/{f=0} f&&/^  - name:/{n++} END{print n+0}' "$RCFG")"
   log "规则数：$(awk '/^rules:/{f=1;next} /^[a-z-]+:/{f=0} f&&/^  - /{n++} END{print n+0}' "$RCFG")"

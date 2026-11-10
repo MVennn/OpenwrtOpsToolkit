@@ -832,3 +832,29 @@
   内的增量（缓冲在 tmpfs）。总量仍以 nlbwmon 为准。
 - **单分钟虚高**：旧版脚本对首见连接按「新值 − 0」计差值 —— 已改为首见只记种子
   （[PITFALLS.md](PITFALLS.md) P42）；升级脚本后删一次 `traffic-stats.state` 重新种子即可。
+
+---
+
+## 17. 升级后验收没跑 `-t` / 报 `CrashCore.raw: not found`（post-sc-update.sh）
+
+**现象**：跑完 `sh post-sc-update.sh`，`/root/post-sc-update.log` 的「===== 5. 验收 =====」
+里有分组数 / 规则数却没有 `配置校验内核：…`，或出现
+`ash: /etc/ShellCrash/CrashCore.raw: not found`；容易误判成全过。
+
+### 排查步骤
+
+```sh
+ssh root@<REPLACE-ROUTER-LAN-IP> 'ls -l /etc/ShellCrash/CrashCore.* /tmp/ShellCrash/CrashCore'
+ssh root@<REPLACE-ROUTER-LAN-IP> 'grep -nE "CORE_BIN|CrashCore.upx|配置校验内核|未找到可执行内核" /etc/ShellCrash/post-sc-update.sh'
+ssh root@<REPLACE-ROUTER-LAN-IP> 'tail -12 /root/post-sc-update.log'
+```
+
+### 原因 / 解法
+
+| 看到什么 | 说明 | 怎么做 |
+|---|---|---|
+| 只有 `CrashCore.upx` + 软链，无 `.raw` | 新版 upx 内核布局，旧版验收写死 `.raw` | 同步本仓 `openwrt/post-sc-update.sh` 动态探测版（及 ShellcrashRules `config/post-sc-update.sh`）；设备侧按「备份 → md5 → 原子 `mv`」替换，**不重启核心** |
+| 有 `.raw` 仍 `not found` | 无可执行位 / `CRASHDIR` 不对 | `chmod 755`；核对 `CRASHDIR=/etc/ShellCrash` |
+| 日志 `!! 未找到可执行内核` | 三种候选都不在 | `pidof CrashCore` 看核心在不在，再查 `$RUNTIME_DIR/CrashCore` 软链 |
+
+**根治**：[PITFALLS.md](PITFALLS.md) P46 —— 校验路径走「候选列表 + `-x` 探测」，跳过分支留日志。

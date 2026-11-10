@@ -13,6 +13,18 @@
 > 走「次版本」那档：发版时把本段标题改成 `## [0.5.0] — <发版日期>`，并补
 > `docs/release-notes/0.5.0.md`。**本次未打 tag、未发版。**
 
+### 设备内核升级到 v1.19.33 后的当前值同步（2026-11-10）
+
+- `README.md` §「已验证环境」：设备 mihomo 当前值由 `v1.19.28` 改为
+  `v1.19.33`（`CrashCore.upx` 15,007,192 B，2026-11-10 11:06 装入，运行态 `/version` 同步）；
+  原 `v1.19.32` 保留为「2026-10-20 短暂手动升级后被自动更新回退」的带时点历史记录。
+- 为什么：DOC-RULES §6 要求「当前值类描述必须随实际变化同步」；README 这句是门面里
+  唯一的设备内核当前值，升级后不改就会让后来者按旧核排查。
+- 验证（设备只读复验）：`CrashCore.upx -v` = `Mihomo Meta v1.19.33 … go1.27.3`、
+  `cfg core_v=v1.19.33`、`curl /version` = `{"meta":true,"version":"v1.19.33"}`、
+  核心进程数 1。探针 cron 与 `openwrt/traffic-stats.sh` 未受影响，
+  `stats/2026-11-10.tsv` 升级后继续写入。`openwrt/post-sc-update.sh` 本次未改。
+
 ### traffic-stats.sh 新增 --summary 跨天分账（2026-11-06）
 
 - 新增 `openwrt/traffic-stats.sh --summary`：把 `$STATS_DIR` 下所有 `YYYY-MM-DD.tsv`
@@ -49,6 +61,24 @@
 - 文档：[docs/PITFALLS.md](docs/PITFALLS.md) P45、[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) §16、
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.5 / §4.6、[docs/TOOLS.md](docs/TOOLS.md) 工具表、
   [openwrt/conf/device.conf.example](openwrt/conf/device.conf.example)、[openwrt/README.md](openwrt/README.md)
+
+### post-sc-update.sh 内核校验路径动态探测（2026-11-10）
+
+- 修 `openwrt/post-sc-update.sh` 验收段（原 :196-198）：`CORE_BIN` 默认
+  `$CRASHDIR/CrashCore.raw`，`if [ -x "$CORE_BIN" ]; then "$CORE_BIN" -t …; fi` 在只有
+  `CrashCore.upx`（ShellCrash 1.9.5beta3 起精简 / 标准版）的设备上条件不成立 → **静默跳过**
+  `-t` 校验、日志仍写「===== 5. 验收 =====」。改为 `CORE_BIN` 显式覆盖优先，否则按
+  `CrashCore.upx` → `CrashCore.raw` → `$RUNTIME_DIR/CrashCore` 顺序探测第一个 `[ -x ]` 内核，
+  找到 `log "配置校验内核：$CHECK_BIN"` 再跑 `-t`，三者都不在显式 log 告警。
+  `:175/:189` 启动链路 `pidof "$CORE_PROC"` 与 `:31` 配置覆盖白名单一行不动。
+- 为什么：内核文件名随版本分支变，写死任一个都会漏另两种布局；跳过分支不留日志会让巡检假绿。
+  设备 2026-11-10 实况＝仅 `CrashCore.upx`（10,283,068 B / v1.19.28）+ 运行态软链。
+- 验证：`sh -n` rc=0；五场景 fixture 全过（upx 优先 / 仅 raw 兼容 / 仅软链回退 / 全无告警 /
+  显式覆盖不回归）；改后 226 行纯 LF、md5 `8e908bdcb3773b3af5c97a18f476a08e`；设备部署副本
+  已按「备份 `/root/post-sc-update.sh.bak-shellcrash-status-20261110` → `sh -n` → 原子 `mv` → md5 复核」
+  同步为同值，核心进程数仍 1（**未重启**）。
+- 文档：[docs/PITFALLS.md](docs/PITFALLS.md) P46、[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) §17、
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3 / §4.5、[docs/TOOLS.md](docs/TOOLS.md) 工具表。
 
 ## [0.4.0] — 2026-11-06
 
