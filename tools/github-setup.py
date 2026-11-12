@@ -58,10 +58,10 @@ PROJECTS = {
    "description": "给任意 OpenWrt 设备用的现代 Web 控制台，替代 LuCI，部署在路由器的 /modern/ 路径下。",
    "topics": ["openwrt", "luci", "dashboard", "vue3", "typescript", "webui"],
  },
- "ZcodeAIModels": {
+ "ModelBus": {
    "private": False,
-   "description": "把模型供应商接进 ZCode 客户端的脚本与文档：模型探测、按成本档分档、思考参数矩阵。",
-   "topics": ["zcode", "llm", "model-router", "ai-gateway", "model-routing", "provider"],
+   "description": "把模型供应商接进 DSH 主宿主与各类 agent 的脚本与文档：模型探测、按成本档分档、思考参数矩阵。",
+   "topics": ["zcode", "llm", "model-router", "ai-gateway", "model-routing", "provider", "dsh"],
  },
  "ClientTriage": {
    "private": False,

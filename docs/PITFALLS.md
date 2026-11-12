@@ -512,7 +512,7 @@
   不是解法 —— 必须改脚本。
 - **解法**：结论行只用 ASCII（`[OK]` / `[FAIL]` / `[!]`）；入口再加
   `if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(errors="replace")`，
-  非 GBK 字符降级成 `?` 而不是抛异常。同一问题首次记录见 ZcodeAIModels 仓「踩坑总汇」第 36 节（跨仓引用，非本仓路径）。
+  非 GBK 字符降级成 `?` 而不是抛异常。同一问题首次记录见 ModelBus 仓「踩坑总汇」第 36 节（跨仓引用，非本仓路径）。
 - **验证**：`python -I tools/check-docs.py` → `[OK] …`、退出码 0；反证：把 `✓` 改回原样，
   同一命令退出码 1 并抛 `UnicodeEncodeError`。
 

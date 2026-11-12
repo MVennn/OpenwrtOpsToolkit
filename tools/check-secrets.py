@@ -8,7 +8,7 @@
     python tools/check-secrets.py --all      # 已跟踪 + 未跟踪一起扫（遵循 .gitignore）
 
 退出码：0 通过 / 1 发现疑似敏感信息 / 2 自身故障（git 不可用或失败）。
-规则与 ZcodeAIModels 的守卫完全一致，8 个仓扫同一套口径。
+规则与 ModelBus 的守卫完全一致，系列各仓扫同一套口径。
 """
 from __future__ import annotations
 
