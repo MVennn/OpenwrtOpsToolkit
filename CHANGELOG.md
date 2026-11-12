@@ -7,11 +7,18 @@
 
 ---
 
-## [未发布] — 待发 0.5.0
+## [0.5.0] — 2026-11-12
 
-> 本次含新功能（`traffic-stats.sh --summary`），按 [docs/VERSIONING.md](docs/VERSIONING.md) §1
-> 走「次版本」那档：发版时把本段标题改成 `## [0.5.0] — <发版日期>`，并补
-> `docs/release-notes/0.5.0.md`。**本次未打 tag、未发版。**
+### 文档精简与跨仓名改 ModelBus（2026-11-12）
+
+- 修订版本号指针、shebang 路径、release-notes 索引、上游链接与凭据占位口径；仓内
+  `memories/MEMORY.md` 接上 dsh-mnemon 正本，不再自带一份手写记忆
+- `tools/check-secrets.py` 头部注释与 [docs/PITFALLS.md](docs/PITFALLS.md) P44 的跨仓名
+  `ZcodeAIModels` → `ModelBus`（系列各仓扫同一套口径，注释与正本对齐）
+- `tools/github-setup.py` 的 `PROJECTS` 条目 `ZcodeAIModels` → `ModelBus`：描述改为
+  「接进 DSH 主宿主与各类 agent」，topics 补 `dsh`；对已存在的仓不会自动改名（见下方风险）
+- 版本判断：只改文档口径与门面脚本元数据，脚本行为一个字节没动，不单独进位，随本版 0.5.0
+  一并记录（按 [docs/VERSIONING.md](docs/VERSIONING.md) §5）
 
 ### 设备内核升级到 v1.19.33 后的当前值同步（2026-11-10）
 
@@ -38,6 +45,8 @@
   逐日 `--report` 加总要人肉做，且组名一多就漏
 - 验证：设备 4 天数据跑 `--summary` —— 总量 120.7 MB、机场出口 40.8 MB（33.8%）、
   直连 69.1 MB（57.2%）、兜底 10.8 MB（9.0%），三段相加等于总量，与逐日 `--report` 对得上
+- 版本判断：新增使用者可感知的子命令 → 属**功能更新**，按 [docs/VERSIONING.md](docs/VERSIONING.md) §1
+  进次版本 `0.4.0` → `0.5.0`
 
 ### bulk-guard.sh 空闲计时缺陷修复（2026-11-06）
 
