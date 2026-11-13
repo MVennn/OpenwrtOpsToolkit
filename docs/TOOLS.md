@@ -14,6 +14,7 @@ OpenwrtOpsToolkit/
 │  ├─ recover-now.sh         离线恢复：DNS 解析全失败、代理离线
 │  ├─ rc.local               开机自启模板（/tmp 运行时目录、nft 表、/var 兜底）
 │  ├─ post-sc-update.sh      ShellCrash 官方脚本更新后恢复本地补丁
+│  ├─ setup-zram.sh          低内存设备启用 zram 压缩 swap（装包 + 写 uci + 调 `vm.swappiness`，幂等，换固件后重跑）
 │  └─ conf/device.conf.example  设备配置样例（复制成 device.conf 再改）
 ├─ mihomo/
 │  ├─ mihomo_api.py          控制 API 客户端库（IPv6 + 重试 + chunked 解码）
@@ -46,6 +47,7 @@ OpenwrtOpsToolkit/
 | `openwrt/recover-now.sh` | 手动触发的成套恢复 | ⚠️ 会（重生成配置、重载 fw4） |
 | `openwrt/rc.local` | 开机自启模板 | ⚠️ 会（装到 `/etc/rc.local`） |
 | `openwrt/post-sc-update.sh` | ShellCrash 更新后恢复本地补丁；验收段按 `CrashCore.upx` → `CrashCore.raw` → 运行态软链动态探测内核跑 `-t`（见 [PITFALLS.md](PITFALLS.md) P46） | ⚠️ 会（覆盖 starts/ 下三个文件） |
+| `openwrt/setup-zram.sh` | 低内存设备启用压缩 swap：装 `kmod-zram` / `zram-swap`、把大小与压缩算法写进 uci、调 `vm.swappiness`，用 CPU 换内存避免瞬时峰值被 OOM killer 杀核心；`--status` 只报告不改，换固件后重跑一次；适配参考见 [PITFALLS.md](PITFALLS.md) P47 | ⚠️ 会（apk 装包、`uci set` + `uci commit system`、写 `/etc/sysctl.d/99-zram.conf`；装完立刻有 swap，**大小与算法重启后生效**） |
 | `mihomo/*.py` | 诊断 | ❌ 只读 |
 | `cdn/*.py` | 诊断 | ❌ 只读 |
 

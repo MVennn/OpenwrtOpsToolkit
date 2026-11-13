@@ -39,7 +39,7 @@
    提到 `debug`，脚本结束**改回 `info`**（见 §5.4）。
 2. **要动手就最小化修复** —— `openwrt/` 发现偏离时**只补回偏离的那一项**，
    不顺手重构、不做「顺便优化」，每次修复都幂等，跑第二遍不会把设备搞坏。
-3. **红线**（六个脚本共同遵守，展开见 §4.7）：不重启设备、不改订阅与规则源文件、
+3. **红线**（读 `device.conf` 的六个脚本共同遵守，展开见 §4.7；`setup-zram.sh` 是唯一按设计写 UCI 的例外，见 §4.9）：不重启设备、不改订阅与规则源文件、
    不写 UCI 配置、不删防火墙链、不把流量降级到「不可信」的出口、不删任何持久化数据。
 4. **不存凭据** —— secret 与口令一律走环境变量或设备上现读，仓库里只有位置没有值
    （见 [SECRETS.md](SECRETS.md)）。
@@ -371,6 +371,9 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 六个脚本**共同**不做这些：
 
+> `openwrt/setup-zram.sh` 不在这一组里 —— 启用 zram 必须写 `system.@system[0].zram_size_mb` /
+> `zram_comp_algo` 与 `/etc/sysctl.d/99-zram.conf` 的 `vm.swappiness`，见 §4.9。
+
 - ❌ **不重启设备**（没有 `reboot`）。
 - ❌ **不改订阅源文件与规则文件**。
 - ❌ **不写 UCI 配置**（`/etc/config/*`）。
@@ -396,6 +399,24 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 `mihomo/` 与 `cdn/` 里那两个改 `log-level` 的动作是**唯一**的写操作，
 且都在 `finally` 式的收尾里改回 `info`（见 [PITFALLS.md](PITFALLS.md) 关于它的坑）。
+
+### 4.9 `setup-zram.sh` —— 低内存设备启用压缩 swap（脚本里唯一的 UCI 写入口）
+
+`sh setup-zram.sh`（按默认值配置：大小 RAM/2、算法 `lzo-rle`、`swappiness=80`）、
+`--status`（只报告 zram / swap / 内存状况，不改任何东西）、`--dry-run`（只打印计划）、
+`--size-mb N` / `--algo lzo-rle|zstd` / `--swappiness N`。
+
+1. **装包**：只在缺包时 `apk add kmod-zram zram-swap`（要联网，其余步骤离线可跑）；
+2. **写 UCI**：`uci set system.@system[0].zram_size_mb` / `zram_comp_algo` + `uci commit system`
+   —— 这是**脚本里唯一**改 `/etc/config/*` 的地方（`openwrt/` 下其余脚本一次都没有；§4.7 的「不写 UCI」只约束上面那六个）；
+3. **调 swappiness**：写 `/etc/sysctl.d/99-zram.conf` 并 `sysctl -w vm.swappiness`；
+4. **核验**：`/proc/swaps` 里有 `/dev/zram0` 即算就位，装完立刻 swapon；但**大小与算法是重启后生效**
+   （运行中的 swap 不能换算法，脚本只落配置 + `uci commit`），所以「本次立刻有 swap、下次开机才按新尺寸」。
+
+与其它脚本的两点差异：**不读 `openwrt/conf/device.conf`**（参数全走命令行 + 内置默认值，
+所以 §2.3 的「六个 shell 脚本读 device.conf」不含它）；**绝不对已在 swap 的设备做 `swapoff`**
+（那会把已换出的页全拉回内存，瞬间 OOM）。为什么加它、实测数据见
+[PITFALLS.md](PITFALLS.md) P47。
 
 ---
 
