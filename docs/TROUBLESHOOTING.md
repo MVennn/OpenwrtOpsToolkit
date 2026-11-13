@@ -715,7 +715,14 @@
 - **`/tmp` 写满 → OOM → 看门狗整机重启**。
   `guardian.sh` §6 在 80% 就开始清理，但**只清白名单**里的文件 ——
   自己的大文件要登记进 `TMPFS_CLEAN_FILES`。
-- **可用内存低**：`MemAvailable` 低于 `MEM_LOW_MB`（默认 30 MB）时守护会告警。
+- **可用内存低**：折算余量低于 `MEM_LOW_MB`（默认 30 MB）时守护会告警。折算口径是
+  `MemAvailable + SwapFree/2` —— 有 zram 压缩 swap 时，匿名页会被压进 RAM 而不是直接
+  触发 OOM，所以 swap 余量要计入；但 zram 的 `disksize` 是逻辑容量（压缩比 2–3x），
+  折半才对得上真实物理宽松度。没有 swap 时折算值就等于 `MemAvailable`，
+  告警文案会写明「无 swap 兜底」。
+- **LuCI 概览页显示 80%+** 不等于内存要爆：那个百分比把 page cache 也算成已用，
+  真实宽松度只看 `MemAvailable`。低内存设备（≤256MB）建议跑一次
+  `openwrt/setup-zram.sh` 启用压缩 swap，详见 [PITFALLS P47](PITFALLS.md)。
 - **闪存（overlay）写满**表现**不一样**（是 ENOSPC，不是 OOM）——
   本仓目前**没有**对 overlay 水位的守卫，这条属于已知缺口。
 

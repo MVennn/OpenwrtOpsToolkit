@@ -122,7 +122,11 @@ IDLE_SWITCH="${BULK_IDLE_SWITCH:-300}"
 # 公共 → 机场：最少停留这么久再考虑回切，避免在两个池之间来回抖。
 # 必须大于 cron 周期：等于时（600s vs */10）切机场的那轮之后的下一轮 cron
 # 时间戳恰好 ≥ 冷却到期点，每回都「刚切就切回」，机场停留名存实亡。
-RETURN_COOLDOWN="${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-1200}}"
+# 2026-11-12 提到 3600：当天实测公共池在 109–2564 KB/s 之间剧烈波动，
+# 20 分钟冷却让「切机场 → 冷却到期 → 回切 → 又慢 → 再切」一天跑十几轮，
+# 每轮都是一次断流。回切判据只能验「节点连得上探测域」（mihomo 没有
+# 指定节点测吞吐的接口），验不出带宽，所以必须靠更长的停留时间压住抖动。
+RETURN_COOLDOWN="${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-3600}}"
 # 公共池没有可承载大流量的节点时，「留在机场不切回」的提醒间隔。
 # 用脚本常量而不是配置键：只是一个日志节流，不值得为它多一个 device.conf 项。
 POOL_EMPTY_LOG_TTL=21600
@@ -499,7 +503,20 @@ idle_probe() {
   [ -n "$_cur" ] && speed_set "$_cur" "$_bps"
   log "INFO: 空闲探测 $((_bps / 1024)) KB/s（阈值 $((MIN_BPS / 1024)) KB/s，节点「${_cur:-?}」）"
   if [ "$_bps" -lt "$MIN_BPS" ]; then
-    switch_airport "空闲探测 $((_bps / 1024)) KB/s 低于阈值"
+    # 单次 4MB 采样噪声大：2026-11-12 这个公共池同一天在 109–2564 KB/s 之间
+    # 剧烈波动，单点低于阈值就切会造成横跳（每次切 = 一次断流）。
+    # 再做一次确认，两次都低才动；可疑探测是低频的（每 2 小时 + 只在低于阈值时），
+    # 多烧一个 4MB 换稳定性值得。
+    sleep 5
+    _bps2=$(probe_bps)
+    if [ "$_bps2" -eq -1 ]; then
+      # 复测无效（响应码不对/字节数不符）：不能当成达标放过，按首测结论切。
+      switch_airport "空闲探测 $((_bps / 1024)) KB/s 低于阈值（复测无效）"
+    elif [ "$_bps2" -lt "$MIN_BPS" ]; then
+      switch_airport "空闲探测连续两次低于阈值（$((_bps / 1024)) / $((_bps2 / 1024)) KB/s）"
+    else
+      log "INFO: 复测 $((_bps2 / 1024)) KB/s 达标，本次不切（首测 $((_bps / 1024)) KB/s）"
+    fi
   fi
 }
 

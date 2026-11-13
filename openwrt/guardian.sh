@@ -411,7 +411,22 @@ if [ $((NOWT2 - LASTF2)) -ge 3600 ]; then
   fi
 fi
 AVAIL=$(awk '/^MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null)
-[ -n "$AVAIL" ] && [ "$AVAIL" -lt "$MEM_LOW_MB" ] && log "WARN: 可用内存仅 ${AVAIL}MB（低于 ${MEM_LOW_MB}MB 阈值，注意 OOM 风险）"
+# 有 zram 压缩 swap 时，MemAvailable 之外还有一层缓冲：匿名页先被压进 RAM，而不是被
+# OOM killer 直接抬走。但 zram 的 disksize 是**逻辑容量**，压缩比通常 2–3x —— 折半计入，
+# 免得把 116MB 的逻辑 swap 当成 116MB 白送的物理内存（2026-11-13 起设备默认带 zram）。
+SWAPFREE=$(awk '/^SwapFree/{print int($2/1024)}' /proc/meminfo 2>/dev/null)
+EFFECTIVE="${AVAIL:-}"
+case "${SWAPFREE:-0}" in
+  ''|0|*[!0-9]*) ;;
+  *) [ -n "$AVAIL" ] && EFFECTIVE=$((AVAIL + SWAPFREE / 2)) ;;
+esac
+if [ -n "$EFFECTIVE" ] && [ "$EFFECTIVE" -lt "$MEM_LOW_MB" ]; then
+  if [ -n "$SWAPFREE" ] && [ "$SWAPFREE" -gt 0 ]; then
+    log "WARN: 可用内存仅 ${AVAIL}MB（zram 余量 ${SWAPFREE}MB 折半后折算 ${EFFECTIVE}MB，低于 ${MEM_LOW_MB}MB 阈值，注意 OOM 风险）"
+  else
+    log "WARN: 可用内存仅 ${AVAIL}MB（无 swap 兜底，低于 ${MEM_LOW_MB}MB 阈值，注意 OOM 风险）"
+  fi
+fi
 
 # /tmp 是内存盘，一旦被写满会连锁 OOM。超阈值就清掉已知的临时大文件。
 TMPK=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $3}')

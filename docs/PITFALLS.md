@@ -559,3 +559,69 @@
   显式告警 / `CORE_BIN` 显式覆盖→不回退）全过；设备实况探测命中
   `/etc/ShellCrash/CrashCore.upx`（v1.19.28）；`sh -n` rc=0、仓内与设备 md5 均
   `8e908bdcb3773b3af5c97a18f476a08e`（226 行）。
+
+### P47 LuCI 的内存占用百分比把 page cache 算成「已用」，看着 86% 其实还有 30MB 真余量 【通用】
+
+- **现象**：233MB 的 MT7981 设备，LuCI 概览页内存常年 80%+（实测 86%），用户以为
+  「内存快撑爆了」。同一时刻 `free -m` 是 used 137MB / free 33MB / buff-cache 68MB，
+  `MemAvailable` 只有 22–33MB —— 两个数字讲的其实是两件事，但界面上只显示一个。
+- **根因**：LuCI 状态页算的是 `(MemTotal − MemFree) / MemTotal`，而 Linux 的
+  `MemFree` **不含** page cache / buffer（这台设备 61–70MB）。缓存是可回收的，
+  却被算进「已用」；真正的宽松度只看 `MemAvailable`（它已经把可回收缓存加回来了）。
+  另一半容易误判的是 mihomo：`VmRSS 73060kB / VmHWM 73096kB` —— 峰值≈当前值，
+  **不是泄漏**，而且这已经是 `GOMEMLIMIT=64MiB`（`/etc/ShellCrash/configs/command.env:4`）
+  压过的结果，再往下压就是拿 GC 抖动换几个 MB，不划算。
+- **解法**：给这种设备加 zram 压缩 swap，用 CPU 换内存，把「瞬时峰值直接触发 OOM killer
+  杀核心」变成「先压缩换出」。`openwrt/setup-zram.sh` 一条命令搞定（幂等，可重复跑）：
+  `apk add kmod-zram zram-swap` → `uci set system.@system[0].zram_size_mb` / `zram_comp_algo`
+  → `/etc/sysctl.d/99-zram.conf` 写 `vm.swappiness = 80` → 核验 `/proc/swaps`。
+  同时把 `guardian.sh` 的「可用内存仅 …MB」判据改成 `MemAvailable + SwapFree/2`
+  —— zram 的 `disksize` 是**逻辑容量**，压缩比 2–3x，折半才不虚高。
+- **下次怎么避**：`free` 的 used / LuCI 的百分比**都不能当内存压力指标**，只看
+  `MemAvailable`（有 swap 时再看 `SwapFree`）；怀疑进程泄漏，看 `VmHWM vs VmRSS`
+  而不是看绝对值 —— 峰值≈当前值说明只是「一直在用这么多」。
+- **验证**（设备 root@10.0.0.1，OpenWrt 25.12.6 / 内核 6.12.112 / 用 `apk` 不是 `opkg`）：
+  `apk add kmod-zram zram-swap` 装到 `kmod-zram-6.12.112-r1`（与内核精确匹配，
+  不匹配会直接 insmod 失败），post-install 立刻建出 `/dev/zram0` 118780KB 并 swapon；
+  `/etc/rc.d/S15zram` 自启已生效；装完 `SwapFree 118780 / MemAvailable 29MB`，
+  `mm_stat` 从 `4096 62 20480 …` 开始（说明已初始化、尚未真正换出）；
+  `sh -n setup-zram.sh` rc=0，`--status` / `--dry-run` 输出符合预期且**不会对已在
+  swap 里的设备做 `swapoff`**（那会把已换出的页全拉回内存，瞬间 OOM）。
+
+### P48 OpenWrt 25.12 的 apk 升级四连坑：copy-up 涨空间、缓存落 overlay、`--exclude` 静默失败、进程还在旧 inode 【通用】
+
+- **现象**：`apk upgrade --simulate` 报 28.2 MiB / 221 包全量升级，而 `/overlay` 只剩
+  19.6MB；升级完 `apk list -u` 已经是 0 条，dnsmasq / hostapd 的行为却没变；
+  设备上 `tar czf … --exclude=…` 退出码 0 却只产出 0 字节文件；
+  `nohup`、`diff` 在 busybox 里都不存在。
+- **根因**（四个独立坑）：
+  1. **overlayfs 上升级 = copy-up**：squashfs 下层的旧文件被上层新文件覆盖后，旧字节
+     仍在只读层占着、**不会释放**，所以每批升级都是净增；可用空间要按
+     「下载缓存 + 解压后新文件」双份估算。
+  2. **apk-tools 3 的包缓存不在 `/tmp`**，在 `/overlay/modern-pkg-cache`
+     （`apk/` 目录 + `*.pool` 单包文件）；`apk --help` 里只有 `cache` 子命令，
+     没有 `--cache-dir` 顶层选项。
+  3. **busybox tar 不认 `--exclude`**，只支持 `-X FILE` 排除列表；带了 `--exclude`
+     会报错，若在脚本里 `2>/dev/null` 就变成静默产 0 字节。
+  4. **apk 只替换磁盘文件、不重启服务**：运行中的进程仍映射被 unlink 的旧 inode，
+     `readlink /proc/<pid>/exe` 显示 `(deleted)`；`wifi reload` 只重读配置，
+     **不重启 hostapd 进程**。
+- **解法**：
+  - 腾空间优先级：`/root` 里旧的 `CrashCore.upx.bak-*`（9.8MB）先 `mv /tmp/`
+    （可回滚，别直接删）→ 清 `/overlay/modern-pkg-cache/apk/*` 与 `*.pool`。
+  - 分批：基础设施小包（16 个，约 2MB）→ LuCI 全家（26 个，体积最大）→ WiFi 栈
+    （2 个，断无线几秒），每批后清缓存再下一批。
+  - 备份用 `tar czf out.tgz /etc` 全量（含核心 14.3MB，压缩后 16MB），要排除时写
+    `-X excludefile`。
+  - `.apk-new`：本地改过的配置被新包标注时，先 `cmp -s` 确认差异（设备没有 `diff`）、
+    存档原件到 `/tmp/pkgup/apknew/`、保留本机版本、再删 `.apk-new`。
+  - 服务生效：`/etc/init.d/dnsmasq restart`、`/etc/init.d/uhttpd restart`、
+    `/etc/init.d/wpad restart`；用 `readlink /proc/<pid>/exe` 里有没有 `(deleted)` 判定。
+- **下次怎么避**：升级前先算三笔账 —— `/overlay` 可用、下载大小、解压后增量；
+  `apk list -u | grep -c '^kmod'` 为 0 才敢说「不动内核」；升级后必须查一遍
+  `readlink /proc/*/exe` 的 `(deleted)`，否则「版本号变了但行为没变」会反复误判。
+  远程跑升级脚本别用 `nohup`（不存在），要么前台跑（别断网），要么 `ssh … "sh s.sh"` 一条命令跑完。
+- **验证**（设备 root@10.0.0.1，OpenWrt 25.12.6 / apk-tools 3.0.5）：44 包全升后
+  `apk list -u` = 0、已装 221 不变；dnsmasq pid 4425→8157、uhttpd 7669、
+  hostapd 2047→8759 均无 `(deleted)`；DNS 双栈、代理 204/200/200、无线 5 客户端回连、
+  `/overlay` 28.5MB 可用。

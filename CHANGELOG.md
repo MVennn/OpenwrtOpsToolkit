@@ -7,6 +7,94 @@
 
 ---
 
+## [未发布]
+
+### 设备包全量升级：44 个包升到 25.12.6 最新，无 kmod 变动（2026-11-13）
+
+- 设备（OpenWrt 25.12.6 / r33311-981c978eff / 内核 6.12.112 / aarch64_cortex-a53）
+  `apk list -u` 从 44 个可升级包升到 **0 个**，已装包数 221 不变；**无 kmod 可升级**
+  （`apk list -u | grep -c '^kmod'` = 0），本次不涉及内核模块与内核版本。三类：
+  - 基础设施/工具 16 个：curl + libcurl4 8.22.0→8.23.0-r1、dnsmasq 2.93-r1→r2、
+    iperf3 + libiperf3 3.20→3.22、libubox20260213 / libblobmsg-json20260213 /
+    libjson-script20260213 / jshn 2026.06.19→2026.11.02、nano 9.2→9.3、
+    openssh-sftp-server 10.6_p1→p2、ddns-scripts(+services) 2.8.4-r8→r9、
+    owut 2026.08.30→2026.11.08、uhttpd + uhttpd-mod-ubus 2026.08.24→2026.11.05。
+  - LuCI 全家 26 个：26.288.56989~75a306d → 26.315.12466~b2e0be4（base / light / ssl /
+    mod-* / lib-* / theme-bootstrap / proto-* / app-{attendedsysupgrade,ddns,firewall,
+    package-manager,sqm} / i18n-*-zh-cn）。
+  - WiFi 栈 2 个：hostapd-common / wpad-mbedtls r6 → r7（2025.08.26~ca266cc2）。
+- 为什么分三批：`/overlay` 只有 57.5MB，升级前剩 19.6MB，而 apk-tools 3 的包缓存落在
+  **`/overlay/modern-pkg-cache`（不是 /tmp）**，28.2 MiB 下载 + overlayfs copy-up 的
+  新文件一锅端会撑爆。先腾到 30.9MB（`mv /root/CrashCore.upx.bak-v1.19.28-20261110
+  /tmp/pkgup/`，保留可回滚；`rm -rf /overlay/modern-pkg-cache/apk/* *.pool`），
+  再按「小包 → LuCI → WiFi」三批升、每批后清缓存；结束时 `/overlay` 剩 28.5MB（48%）。
+- `.apk-new` 处理：dhcp / dnsmasq.conf / uhttpd / ddns / luci / radius 共 6 个配置被新包
+  标注（本地改过）。设备没有 `diff`，用 `cmp -s` + 全文比对，确认均为上游默认模板、
+  无必须采纳的变更（uhttpd 新增的 `max_requests_per_source` 缺省即半值，不用显式写），
+  **保留本机配置**、原件存档到 `/tmp/pkgup/apknew/` 后删除 `.apk-new`。
+- 服务生效（apk 只换磁盘文件，进程仍映射被 unlink 的旧 inode）：
+  `/etc/init.d/dnsmasq restart`（pid 4425→8157）、`/etc/init.d/uhttpd restart`（7669）、
+  `/etc/init.d/wpad restart`（hostapd 2047→8759），三个 `readlink /proc/<pid>/exe`
+  都已从 `(deleted)` 变成真实路径。注意 **`wifi reload` 只重读配置、不重启 hostapd 进程**。
+- 验证：`apk list -u` 0 条；DNS 双栈解析正常；代理 gstatic 204 / google 200 /
+  github 200（0.19–1.97s）；LuCI 返回 403 + `x-luci-login-required: yes`（未登录的
+  正常响应，body 已是 26.315 新版概览页）；2 个 AP `up: true`、5 台客户端全部回连；
+  WAN 192.168.1.2 up；CrashCore v1.19.33 未受影响；zram 118780KB / used 27136KB。
+- 备份：升级前 `/etc` 全量 tar（16.0MB，含 `CrashCore.upx`）落在本机
+  `.work/pkgup-20261113/etc-20261113-001619.tar.gz`，设备上原档已删除腾出 /tmp。
+
+### 加 setup-zram.sh：低内存设备启用 zram 压缩 swap，guardian 内存告警计入 swap 余量（2026-11-13）
+
+- 新增 `openwrt/setup-zram.sh`（幂等，可重复执行）—— 给 233MB 级别的设备启用
+  zram 压缩 swap：按 `apk`（OpenWrt 25.x）/`opkg` 自动选包管理器装
+  `kmod-zram` + `zram-swap`；把大小与压缩算法写进 `uci system.@system[0].zram_size_mb`
+  / `zram_comp_algo`（运行中的 swap 换不了算法，这两项重启才生效）；写
+  `/etc/sysctl.d/99-zram.conf` 把 `vm.swappiness` 提到 80；最后核验
+  `/proc/swaps` 里真的有 `/dev/zram0`。支持 `--status`（只报告）、`--dry-run`、
+  `--size-mb`、`--algo`、`--swappiness`。
+- 改 `openwrt/guardian.sh:413-433` —— 「可用内存仅 …MB」告警判据从**只看
+  `MemAvailable`** 改成 **`MemAvailable + SwapFree/2`**：zram 的 `disksize` 是逻辑容量
+  （压缩比通常 2–3x），折半计入才不会把 116MB 的逻辑 swap 当成白送的物理内存。
+  有 zram 时告警文案会带上「zram 余量 …MB 折半后折算 …MB」，没有 swap 时明确写
+  「无 swap 兜底」。
+- 为什么：这台 233MB 设备上 mihomo 常驻 RSS 73MB（`GOMEMLIMIT=64MiB` 已压过）、
+  内核不可回收 slab 27MB，MemAvailable 长期在 22–33MB 之间；用户看到的「内存占用
+  80%+」其实是 LuCI 的 `(total-free)/total` 把 61MB page cache 算成了已用
+  （86%），真实宽松度只看 MemAvailable。一旦瞬时峰值（`PUT /configs` 整份 reload
+  会让核心内存翻倍）顶穿余量，OOM killer 直接杀核心、守护要等下一轮 cron 才拉起。
+  加 zram 后压力先落到「压缩换出」，而不是「直接杀进程」。
+- 验证（设备 root@10.0.0.1，OpenWrt 25.12.6 / r33311-981c978eff / 内核 6.12.112）：
+  `apk add kmod-zram zram-swap` 装的是 `kmod-zram-6.12.112-r1`，与内核精确匹配；
+  post-install 直接建出 `/dev/zram0` 118780KB 并 `swapon`，`/etc/rc.d/S15zram` 已自启；
+  `vm.swappiness` 80 落 `/etc/sysctl.d/99-zram.conf`；`zram_size_mb=116`、
+  `zram_comp_algo=lzo-rle` 已 `uci commit`；`sh -n` rc=0，`--status` 与 `--dry-run`
+  输出符合预期，`--dry-run` 不对已在 swap 里的设备做 `swapoff`。
+- 部署：`setup-zram.sh` 落 `/etc/openwrt-ops/setup-zram.sh`（与 `device.conf` 同目录）；
+  `guardian.sh` 覆盖 `/etc/ShellCrash/guardian.sh`，备份在 `/tmp/zram-bak/guardian.sh.bak`，
+  仓内与设备 md5 均 `0e9694c0219a7921495c4c7fac300b82`（20450B，LF）。
+
+### bulk-guard.sh 空闲探测改二次确认、回切冷却默认 20 → 60 分钟（2026-11-12）
+
+- 改 `openwrt/bulk-guard.sh:129` —— `RETURN_COOLDOWN` 缺省值
+  `${BULK_RETURN_COOLDOWN:-${BULK_COOLDOWN:-1200}}` → `…:-3600}}`：`device.conf`
+  没有显式配置时，脚本默认就是 60 分钟（配置键仍可覆盖，行为不变）。
+- 改 `openwrt/bulk-guard.sh:505-520` —— 「公共池 → 机场」判据由**单次采样**改为
+  **二次确认**：首测照旧打 `INFO: 空闲探测 … KB/s`，低于阈值时 `sleep 5` 再测一次；
+  两次都低才 `switch_airport`（日志「空闲探测连续两次低于阈值（X / Y KB/s）」）；
+  复测返回 `-1`（响应码不对 / 字节数不符）时**不当达标放过**，按首测结论切并标注
+  「（复测无效）」；复测达标则只打一行 `INFO: 复测 … KB/s 达标，本次不切（首测 … KB/s）`。
+- 为什么：2026-11-12 当天这个公共池的 4 MB 探测速度在 **109–2564 KB/s** 之间剧烈波动，
+  单点低于阈值就切 → 「切机场 → 冷却到期 → 回切 → 又慢 → 再切」一天跑十几轮，
+  每轮都是一次断流。回切判据只能验「节点连得上探测域」（mihomo 没有指定节点测吞吐的
+  接口），验不出带宽，所以既要给采样加确认（多烧一个 4 MB 换稳定），也要拉长停留时间
+  压住抖动。可疑探测是低频的（每 2 小时一轮 + 只在低于阈值时才复测），代价可控。
+- 验证：`bash -n openwrt/bulk-guard.sh` rc=0；改动面 `git diff --stat` = 19 增 2 删，
+  只涉及 `:125-129` 注释 + 缺省值、`:506-519` 确认分支，`idle_probe` 其余逻辑、
+  `switch_airport`、状态文件与 `--status` 输出一行未动。**尚未上设备**（部署与设备侧
+  `--status` 复核由维护窗口执行）。
+- 待同步：`openwrt/conf/device.conf.example:120` 的示例注释仍写 `#BULK_RETURN_COOLDOWN=1200`，
+  与新的脚本缺省值不一致，下次改该文件时一并改。
+
 ## [0.5.0] — 2026-11-12
 
 ### 文档精简与跨仓名改 ModelBus（2026-11-12）

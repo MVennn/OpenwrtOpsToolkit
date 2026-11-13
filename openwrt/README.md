@@ -1,12 +1,13 @@
 # openwrt/ —— OpenWrt 设备侧运维脚本
 
-> **一句话**：六个可以直接扔到任意 OpenWrt 设备上跑的运维脚本 ——
-> 网络守护、大流量守卫、流量归因、离线恢复、开机自启模板、ShellCrash 更新后回灌补丁；
+> **一句话**：七个可以直接扔到任意 OpenWrt 设备上跑的运维脚本 ——
+> 网络守护、大流量守卫、流量归因、离线恢复、开机自启模板、ShellCrash 更新后回灌补丁、
+> 低内存设备的 zram 压缩 swap；
 > **不含任何设备标识**，所有跟「你这台机器」有关的值都在 `conf/device.conf` 里。
 
 ---
 
-## 1. 这六个脚本
+## 1. 这七个脚本
 
 | 文件 | 干什么 | 典型调用 |
 |---|---|---|
@@ -16,8 +17,9 @@
 | `recover-now.sh` | 离线恢复：DNS 解析全失败 / 代理离线 / 「连上 WiFi 但没网」 | 人工，或 Windows 侧推过去跑 |
 | `rc.local` | 开机自启**模板**：建 tmpfs 运行时目录、兜底重建 `/var`、按需加载 nft 表 | 覆盖 `/etc/rc.local` |
 | `post-sc-update.sh` | ShellCrash 官方脚本更新后，把本地补丁恢复回来 + 补 cron + 启动 + 验收 | 每次更新完跑一次 |
+| `setup-zram.sh` | 低内存设备的压缩 swap：装 `kmod-zram`/`zram-swap`、把大小与压缩算法写进 uci、调 `vm.swappiness`，用 CPU 换内存，避免瞬时峰值被 OOM killer 杀核心 | 一次性；换固件后重跑（`--status` 只报告不改） |
 
-设计原则（六个脚本一致）：
+设计原则（七个脚本一致）：
 
 1. **只检测 + 最小化修复**，绝不删防火墙链、绝不重启路由器、绝不改订阅；
 2. 每种修复都**幂等**，跑第二遍不会把设备搞坏；
@@ -108,6 +110,10 @@ ssh root@<路由器> '/etc/init.d/cron restart'
 # 3) 开机自启：先备份再覆盖
 ssh root@<路由器> 'cp /etc/rc.local /root/backup/rc.local.bak-$(date +%Y%m%d-%H%M%S)'
 scp openwrt/rc.local root@<路由器>:/etc/rc.local
+
+# 4) 低内存设备（≤256MB）额外跑一次：启用 zram 压缩 swap（幂等，可重复跑）
+scp openwrt/setup-zram.sh root@<路由器>:/etc/openwrt-ops/setup-zram.sh
+ssh root@<路由器> 'sh /etc/openwrt-ops/setup-zram.sh'   # 先看状态加 --status
 ```
 
 > `bulk-guard.sh` 要生效，还需要两件设备侧的事：`device.conf` 里填
@@ -145,6 +151,8 @@ sed -i '/guardian/d' /etc/crontabs/root && /etc/init.d/cron restart
 - `ShellCrash`（默认 `/etc/ShellCrash`）—— 提供 `start.sh` / `task/task.sh` / `starts/*`
 - `mihomo` 核心 —— 控制 API（默认 `127.0.0.1:9999`）、透明端口（默认 `7890`）
 - `curl`、`nft`、`awk`、`sed`、`grep`、`pidof`、`netstat`、`df`、`nslookup`、`crontab`、`logger`
+- `apk`（OpenWrt 25.x 起）或 `opkg`（旧版）—— 只有 `setup-zram.sh` 装包时用到，
+  其余脚本全部离线可跑
 
 脚本会从 `/etc/ShellCrash/configs/ShellCrash.cfg` 的 `secret=` 行**现读** API 密钥 ——
 **脚本里不存任何凭据**。换了密钥不用改脚本，但所有 API 调用要一起换，否则静默 `Unauthorized`。
