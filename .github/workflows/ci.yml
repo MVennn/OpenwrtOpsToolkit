@@ -47,6 +47,10 @@ jobs:
           # 设备配置不该入库
           test ! -e openwrt/conf/device.conf
 
+      # 同一段函数在多个脚本里各有一份（busybox 没有公共库），靠标记块 + 门禁防漂移
+      - name: 跨脚本共享块一致性
+        run: python3 tools/check-shell-shared-blocks.py
+
   docs:
     name: 文档与凭据扫描
     runs-on: ubuntu-24.04
