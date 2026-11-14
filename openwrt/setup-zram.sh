@@ -27,6 +27,7 @@ SYSCTL_FILE=/etc/sysctl.d/99-zram.conf
 INIT_SCRIPT=/etc/init.d/zram
 ZRAM_DEV=/dev/zram0
 SIZE_MB=""
+SIZE_SET=0
 ALGO="lzo-rle"
 SWAPPINESS=80
 MODE=apply
@@ -38,7 +39,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --status)     MODE=status ;;
     --dry-run)    MODE=dry ;;
-    --size-mb)    shift; SIZE_MB="${1:-}" ;;
+    --size-mb)    shift; SIZE_SET=1; SIZE_MB="${1:-}" ;;
     --algo)       shift; ALGO="${1:-}" ;;
     --swappiness) shift; SWAPPINESS="${1:-}" ;;
     -h|--help)    sed -n '2,25p' "$0"; exit 0 ;;
@@ -46,6 +47,26 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# 参数校验：缺值/非法值必须在动手之前挡掉。原来 --size-mb 不带值时静默取空，
+# 再被当成「未指定」回落到 RAM/2 —— 用户以为改成了 256MB，实际没改；
+# 非法算法名则被原样写进 uci，重启后 zram 起不来（现象是「升级完 swap 没了」）。
+if [ "$SIZE_SET" = 1 ]; then
+  case "$SIZE_MB" in
+    '') die "--size-mb 缺值（例：--size-mb 128）" ;;
+    *[!0-9]*) die "--size-mb 需要正整数（拿到：$SIZE_MB）" ;;
+  esac
+  [ "$SIZE_MB" -ge 16 ] || die "--size-mb 太小（$SIZE_MB MB），至少 16"
+fi
+case "$ALGO" in
+  '') die "--algo 缺值（可选 lzo-rle / lzo / lz4 / zstd / deflate）" ;;
+  lzo-rle|lzo|lz4|zstd|deflate) ;;
+  *) die "未知压缩算法：$ALGO（可选 lzo-rle / lzo / lz4 / zstd / deflate）" ;;
+esac
+case "$SWAPPINESS" in
+  ''|*[!0-9]*) die "--swappiness 需要 0-200 的整数（拿到：$SWAPPINESS）" ;;
+esac
+[ "$SWAPPINESS" -le 200 ] || die "--swappiness 超出范围（$SWAPPINESS，允许 0-200）"
 
 mem_total_mb() {
   awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo
@@ -66,6 +87,9 @@ show_status() {
     echo "mm_stat:      $(cat /sys/block/zram0/mm_stat 2>/dev/null)"
     echo "  ^ 字段顺序：orig_data_size compr_data_size mem_used_total mem_limit"
     echo "             mem_used_max same_pages pages_compacted huge_pages huge_pages_since"
+    # 压缩比是「zram 到底省了多少内存」的唯一直接证据（P47 的 SwapFree/2 折算就靠它校准）
+    awk '{ if ($2 > 0) printf "压缩比:       %.2fx（原 %d KB → 压后 %d KB，省 %d KB）\n", $1/$2, $1/1024, $2/1024, ($1-$2)/1024 }' \
+      /sys/block/zram0/mm_stat 2>/dev/null
   else
     echo "未创建（缺 kmod-zram 或未启动 init 脚本）"
   fi
@@ -141,7 +165,7 @@ run uci commit system
 # 3. swappiness：zram 场景下调高 —— 换出到压缩内存比丢弃 page cache 划算
 # ---------------------------------------------------------------------------
 echo "--- 3. vm.swappiness ---"
-if [ -f "$SYSCTL_FILE" ] && grep -q "^vm.swappiness" "$SYSCTL_FILE" 2>/dev/null; then
+if [ -f "$SYSCTL_FILE" ] && grep -q "^vm\.swappiness" "$SYSCTL_FILE" 2>/dev/null; then
   log "$SYSCTL_FILE 已存在，不改写"
 else
   if [ "$DRY" = 1 ]; then
@@ -156,13 +180,19 @@ EOF
     log "已写 $SYSCTL_FILE"
   fi
 fi
-run sh -c "echo $SWAPPINESS > /proc/sys/vm/swappiness"
+# 直接重定向，不经 sh -c：原来把变量拼进 shell 命令串（命令注入面），
+# 现在参数已校验为纯数字，这里再把它写成结构上不可注入的形式。
+if [ "$DRY" = 1 ]; then
+  echo "  [dry] echo $SWAPPINESS > /proc/sys/vm/swappiness"
+else
+  echo "$SWAPPINESS" > /proc/sys/vm/swappiness 2>/dev/null || log "!! 写 /proc/sys/vm/swappiness 失败（只读？）"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. 唤醒：还没起就起，已起就不动（不 swapoff，避免把已换出的页全拉回内存）
 # ---------------------------------------------------------------------------
 echo "--- 4. 启用 ---"
-if [ -b "$ZRAM_DEV" ] && grep -q "$ZRAM_DEV" /proc/swaps 2>/dev/null; then
+if [ -b "$ZRAM_DEV" ] && grep -qF "$ZRAM_DEV" /proc/swaps 2>/dev/null; then
   log "$ZRAM_DEV 已在 swap 中，保持现状（不 swapoff，避免拉回已换出的页）"
 else
   if [ -x "$INIT_SCRIPT" ]; then
@@ -181,7 +211,7 @@ if [ "$DRY" = 1 ]; then
   echo "（dry-run 未做验收）"
   exit 0
 fi
-grep -q "$ZRAM_DEV" /proc/swaps || die "$ZRAM_DEV 未出现在 /proc/swaps"
+grep -qF "$ZRAM_DEV" /proc/swaps || die "$ZRAM_DEV 未出现在 /proc/swaps"
 ls /etc/rc.d/ 2>/dev/null | grep -qi 'zram' || log "!! rc.d 里没有 zram 自启链接，重启后需手动 start"
 show_status
 echo "===== 完成。重启后生效项：zram 大小 ${SIZE_MB}MB、算法 $ALGO ====="

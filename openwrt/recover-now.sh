@@ -94,7 +94,7 @@ if [ "$MODE" = "check" ]; then
     if [ -f "$FIP" ]; then
         log "当前行数=$(wc -l < "$FIP")  空行数=$(grep -c '^[[:space:]]*$' "$FIP")"
         log "-- 过滤清单 --"
-        cat "$FIP" | tee -a "$LOG"
+        tee -a "$LOG" < "$FIP"
     else
         log "!! $FIP 不存在"
     fi
@@ -102,11 +102,22 @@ else
     if [ -f "$FIP" ]; then
         cp -f "$FIP" "$(dirname "$FIP")/fake_ip_filter.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null
         log "改前行数=$(wc -l < "$FIP")  空行数=$(grep -c '^[[:space:]]*$' "$FIP")"
-        grep -v '^[[:space:]]*$' "$FIP" | grep -v '^[[:space:]]*#' | sed 's/[[:space:]]*$//' | awk '!a[$0]++' > "$FIP.tmp"
-        mv -f "$FIP.tmp" "$FIP"
+        # 原来四段管道（grep|grep|sed|awk，4 个 fork）做「去空行+去注释+去行尾空白+去重」，
+        # 合成一次 awk：语义相同、保留首次出现顺序，临时名带 $$ 避免两次并发恢复互踩。
+        awk '{
+            line = $0
+            sub(/[[:space:]]+$/, "", line)
+            if (line ~ /^[[:space:]]*$/) next
+            if (line ~ /^[[:space:]]*#/) next
+            if (seen[line]++) next
+            print line
+        }' "$FIP" > "$FIP.tmp.$$" && mv -f "$FIP.tmp.$$" "$FIP" || {
+            rm -f "$FIP.tmp.$$"
+            log "!! 重写 $FIP 失败（原文件未改动）"
+        }
         log "改后行数=$(wc -l < "$FIP")"
         log "-- 过滤清单 --"
-        cat "$FIP" | tee -a "$LOG"
+        tee -a "$LOG" < "$FIP"
     else
         log "!! $FIP 不存在"
     fi
@@ -179,7 +190,7 @@ for t in $NFT_TABLES; do
     fi
 done
 FIRST_T=$(echo "$NFT_TABLES" | awk '{print $1}')
-[ -n "$FIRST_T" ] && { grep -q "$FIRST_T" "$RC_LOCAL" 2>/dev/null || log "提醒：$RC_LOCAL 里没有 $FIRST_T 的开机加载"; }
+[ -n "$FIRST_T" ] && { grep -Fq "$FIRST_T" "$RC_LOCAL" 2>/dev/null || log "提醒：$RC_LOCAL 里没有 $FIRST_T 的开机加载"; }
 
 section "4.1 重载 fw4 防火墙（start.sh 可能把它留在半加载状态，表现为连上却没网）"
 /etc/init.d/firewall restart 2>&1 | tail -5 | tee -a "$LOG"
@@ -212,13 +223,14 @@ section "5. 恢复看门狗 crontab"
 if [ -f /tmp/cron.recover.bak ]; then
     crontab /tmp/cron.recover.bak 2>/dev/null && log "crontab 已恢复"
     if [ -n "$GUARDIAN_PATH" ]; then
-        grep -q "$(basename "$GUARDIAN_PATH")" "$CRON_FILE" 2>/dev/null || {
+        # -F + 去掉 basename 子进程：表名里的 . * [ 按字面匹配（P33）
+        grep -Fq "${GUARDIAN_PATH##*/}" "$CRON_FILE" 2>/dev/null || {
             echo "*/5 * * * * /bin/ash $GUARDIAN_PATH #网络守护:出口组复原+nft表补载+探活" >> "$CRON_FILE"
             crontab "$CRON_FILE" 2>/dev/null && log "已补回 guardian 守护行"
         }
     fi
     if [ -n "$LEGACY_WD" ]; then
-        grep -q "$(basename "$LEGACY_WD")" "$CRON_FILE" 2>/dev/null || {
+        grep -Fq "${LEGACY_WD##*/}" "$CRON_FILE" 2>/dev/null || {
             echo "* * * * * /bin/ash $LEGACY_WD shellcrash #ShellCrash保守模式守护进程" >> "$CRON_FILE"
             crontab "$CRON_FILE" 2>/dev/null && log "已补回 legacy 看门狗行"
         }

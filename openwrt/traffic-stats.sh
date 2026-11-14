@@ -106,34 +106,41 @@ fi
 #   + 按组合计 + 域名 top20。回答「这段时间机场流量被谁吃了」。
 #   组名改了就覆盖 STATS_AIRPORT_GROUPS / STATS_DIRECT_GROUPS（`|` 分隔的 ERE）。
 if [ "$1" = "--summary" ]; then
-	AG="${STATS_AIRPORT_GROUPS:-🚀 节点选择|🤖 干净出口|🤖 AI接口|🤖 人工智能|🔗 GitHub 出口|🎬 B站解锁|🎥 NETFLIX|𝕏 媒体|♻️ 自动选择}"
-	DG="${STATS_DIRECT_GROUPS:-^DIRECT$|🎯 全球直连}"
-	_n=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | grep -c . 2>/dev/null)
-	_f=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | head -1)
-	_l=$(ls "$STATS_DIR"/*.tsv 2>/dev/null | tail -1)
+	# 策略组名是设备真值，一律外置（AGENTS §2 / P18）：本脚本不带任何默认组名。
+	# 未配置时只出总量、不分账，并在标题里明说 —— 绝不静默把全部流量算成兜底。
+	AG="${STATS_AIRPORT_GROUPS:-}"
+	DG="${STATS_DIRECT_GROUPS:-}"
+	# 一次 ls 拿全部文件名，省掉原来 4 次 ls + grep/head/tail 的重复枚举
+	_files=$(ls "$STATS_DIR"/*.tsv 2>/dev/null)
+	_n=$(printf '%s\n' "$_files" | grep -c . 2>/dev/null)
+	_f=$(printf '%s\n' "$_files" | head -1)
+	_l=$(printf '%s\n' "$_files" | tail -1)
 	_f=${_f##*/}; _f=${_f%.tsv}
 	_l=${_l##*/}; _l=${_l%.tsv}
 	echo "=== 汇总：${_n:-0} 个统计日（${_f:-?} ~ ${_l:-?}）==="
-	cat "$STATS_DIR"/*.tsv 2>/dev/null | awk -F'\t' -v air="$AG" -v dir="$DG" '
+	awk -F'\t' -v air="$AG" -v dir="$DG" '
 	{ u = $3 + 0; d = $4 + 0; T += u + d
-	  if ($1 ~ air)      A += u + d
-	  else if ($1 ~ dir) D += u + d
-	  else               O += u + d }
+	  # 未配置分账模式时不做匹配：空 ERE 会匹配所有行，把全部流量算成「机场出口」
+	  if (air != "" && $1 ~ air)      A += u + d
+	  else if (dir != "" && $1 ~ dir) D += u + d
+	  else                            O += u + d }
 	END {
 	  if (T == 0) { print "（没有数据）"; exit }
 	  printf "总量        %9.1f MB\n", T / 1048576
-	  printf "机场出口    %9.1f MB  %5.1f%%\n", A / 1048576, A * 100 / T
-	  printf "直连        %9.1f MB  %5.1f%%\n", D / 1048576, D * 100 / T
-	  printf "兜底/混合   %9.1f MB  %5.1f%%\n", O / 1048576, O * 100 / T
-	}'
+	  if (air != "" || dir != "") {
+	    printf "机场出口    %9.1f MB  %5.1f%%\n", A / 1048576, A * 100 / T
+	    printf "直连        %9.1f MB  %5.1f%%\n", D / 1048576, D * 100 / T
+	    printf "兜底/混合   %9.1f MB  %5.1f%%\n", O / 1048576, O * 100 / T
+	  } else {
+	    print "（未配置 STATS_AIRPORT_GROUPS / STATS_DIRECT_GROUPS，不分账）"
+	  }
+	}' "$STATS_DIR"/*.tsv 2>/dev/null
 	echo "-- 按组合计 --"
-	cat "$STATS_DIR"/*.tsv 2>/dev/null \
-		| awk -F'\t' '{ t[$1] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' \
+	awk -F'\t' '{ t[$1] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' "$STATS_DIR"/*.tsv 2>/dev/null \
 		| sort -rn | head -15 \
 		| awk -F'\t' '{ printf "  %9.1f MB  %s\n", $1 / 1048576, $2 }'
 	echo "-- 域名 top20 --"
-	cat "$STATS_DIR"/*.tsv 2>/dev/null \
-		| awk -F'\t' '{ t[$2] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' \
+	awk -F'\t' '{ t[$2] += $3 + $4 } END { for (k in t) printf "%d\t%s\n", t[k], k }' "$STATS_DIR"/*.tsv 2>/dev/null \
 		| sort -rn | head -20 \
 		| awk -F'\t' '{ printf "  %9.1f MB  %s\n", $1 / 1048576, $2 }'
 	exit 0
@@ -142,7 +149,13 @@ fi
 # ---------------------------------------------------------------- 采样
 # secret 与 guardian.sh / bulk-guard.sh 同源：运行时从 ShellCrash.cfg 现读。
 # 读不到时按无鉴权请求（核心没开鉴权时这本来就是对的；开了鉴权则本轮 401 无数据）。
-secret=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1)
+# shared:secret-read —— 与 guardian.sh / bulk-guard.sh 逐字同一块，由
+# tools/check-shell-shared-blocks.py 校验漂移（P35）；tr -d '\r' 防 CRLF 尾部。
+# >>> shared:secret-read >>>
+API_SECRET=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1 | tr -d '\r')
+# <<< shared:secret-read <<<
+# 本脚本其余部分沿用旧变量名 secret（改动面最小）
+secret="$API_SECRET"
 [ -n "$secret" ] || echo "traffic-stats: 未从 $API_CFG 读到 secret，按无鉴权请求（若核心开了鉴权，本轮采样为空）" >&2
 sample="$TMPDIR/traffic-stats.sample.$$"
 rows="$TMPDIR/traffic-stats.rows.$$"
@@ -152,7 +165,8 @@ if [ -n "$secret" ]; then
 else
 	curl -s --max-time 8 "$API" >"$sample" 2>/dev/null
 fi
-grep -q '"connections"' "$sample" 2>/dev/null || exit 0
+# -F：这是固定字符串匹配，模式里没有需要解释的元字符，-F 更快也不会被特殊字符坑
+grep -qF '"connections"' "$sample" 2>/dev/null || exit 0
 
 # 一条连接一个记录：按 `},{` 切开（busybox sed 不支持在替换里插换行，所以整段
 # 交给 awk 处理，一次读入、内存里切分）。chains 取最后一项 = 命中的策略组/节点。
@@ -207,10 +221,13 @@ awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="
 # 差值先追加进 /tmp 的当日缓冲（tmpfs，不磨闪存），到落盘间隔才聚合进当日
 # tsv（见下方 FLUSH_MIN）。缓冲按日期分文件：差值记到采样当天，跨天落盘时
 # 各归各的日期 —— 与旧版逐分钟按 date +%F 归档的口径一致。
+# 时间只取一次：原来 date +%s 一次、date +%Y-%m-%d 两次（每轮 3 个 date 子进程，
+# 且跨零点时两次 date 可能落在不同日期，缓冲文件名与「当日」判据会自相矛盾）
 NOW_TS=$(date +%s)
+TODAY=$(date +%Y-%m-%d)
 BUF_OK=1
 if [ -s "$STATE.delta" ]; then
-	cat "$STATE.delta" >>"$BUF.$(date +%Y-%m-%d)" 2>/dev/null || BUF_OK=0
+	cat "$STATE.delta" >>"$BUF.$TODAY" 2>/dev/null || BUF_OK=0
 	# 落盘节拍的锚点在首个差值进缓冲时起算（只写一次；flush 后由落盘段刷新）
 	[ -f "$BUF.ts" ] || echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
 fi
@@ -239,7 +256,7 @@ for b in "$BUF".*; do
 	d=${b#"$BUF".}
 	case "$d" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) continue ;; esac
 	# 当日缓冲到间隔才落盘；非当日（跨天残留）本轮立即落盘，各归各的日期
-	if [ "$d" = "$(date +%Y-%m-%d)" ] && [ $((NOW_TS - LM)) -lt $((FLUSH_MIN * 60)) ]; then
+	if [ "$d" = "$TODAY" ] && [ $((NOW_TS - LM)) -lt $((FLUSH_MIN * 60)) ]; then
 		continue
 	fi
 	today="$STATS_DIR/$d.tsv"
@@ -272,8 +289,12 @@ for b in "$BUF".*; do
 done
 [ "$FLUSHED" = "1" ] && echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
 
-# 只留 31 天，避免 overlay 无限增长。
-find "$STATS_DIR" -name '*.tsv' -mtime +31 -delete 2>/dev/null
+# 只留 31 天，避免 overlay 无限增长。只在真的落盘过的那一轮跑：
+# 原来每分钟都跑一次 find（每次 1 个 find 子进程 + 一次目录遍历），
+# 而清理精度是「天」，每分钟扫一遍纯属白烧 CPU 与闪存读。
+if [ "$FLUSHED" = "1" ]; then
+	find "$STATS_DIR" -name '*.tsv' -mtime +31 -delete 2>/dev/null
+fi
 # 旧版以 find 的 rc=0 收尾；这里显式 exit 0，保证非落盘轮（上面的 && 链为假）
 # 也不会把 rc=1 泄漏给 cron。
 exit 0

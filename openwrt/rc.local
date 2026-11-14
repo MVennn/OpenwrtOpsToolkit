@@ -104,12 +104,19 @@ if [ -z "$DNS_PENDING" ]; then
   logger -t rc.local "没有待加载的 DNS 劫持表（$NFT_DIR 下无对应 .nft），跳过等待"
 else
   i=0
+  DNS_READY=0
   while [ "$i" -lt "$DNS_WAIT_LOOPS" ]; do
-    netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]" && break
+    netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]" && { DNS_READY=1; break; }
     sleep 2
     i=$((i + 1))
   done
-  if netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]"; then
+  # 循环是「探一次再睡 2 秒」，退出时可能刚好落在最后一次 sleep 里就绪，
+  # 所以未就绪时补探一次（与旧版完全等价）；已就绪就不再重复跑同一条 netstat，
+  # 开机路径上省掉一次 netstat+grep（2 个 fork）。
+  if [ "$DNS_READY" != "1" ]; then
+    netstat -lntp 2>/dev/null | grep -qE "[:.]$DNS_PORT[[:space:]]" && DNS_READY=1
+  fi
+  if [ "$DNS_READY" = "1" ]; then
     for t in $DNS_PENDING; do
       load_nft_table "$t"
     done

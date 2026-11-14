@@ -88,7 +88,8 @@ has_all_markers() {
   for _m in $_marks; do
     [ -z "$_m" ] && continue
     IFS="$_old"
-    grep -q "$_m" "$_f" 2>/dev/null || { IFS="$_old"; return 1; }
+    # -F：标记是路径/字符串片段，含 . * [ 时按正则解释会误判（P33）
+    grep -Fq "$_m" "$_f" 2>/dev/null || { IFS="$_old"; return 1; }
     IFS=","
   done
   IFS="$_old"
@@ -100,7 +101,7 @@ ensure_cron() {
   _kw=$1
   _line=$2
   [ -z "$_line" ] && return 0
-  if grep -q "$_kw" "$CRON_FILE" 2>/dev/null; then
+  if grep -Fq "$_kw" "$CRON_FILE" 2>/dev/null; then
     log "OK: crontab 已有 [$_kw]"
     return 0
   fi
@@ -151,14 +152,14 @@ ensure_cron "task.sh 106" "$CRON_SAVE_LINE"
 
 # ---------------------------------------------------------------------------
 section "3. 启动链路兜底检查"
-if grep -q "mkdir -p $RUNTIME_DIR" "$RC_LOCAL" 2>/dev/null; then
+if grep -Fq "mkdir -p $RUNTIME_DIR" "$RC_LOCAL" 2>/dev/null; then
   log "OK: rc.local 建运行时目录在"
 else
   log "!! rc.local 里没有 mkdir -p $RUNTIME_DIR（/tmp 是 tmpfs，目录缺失会让代理起不来）"
 fi
 if [ -n "$GUARDIAN_PATH" ] && [ -f "$GUARDIAN_PATH" ]; then
-  grep -q "mkdir -p" "$GUARDIAN_PATH" 2>/dev/null && log "OK: guardian 建运行时目录在" || log "!! guardian.sh 缺 mkdir"
-  grep -q "cron lifeline" "$GUARDIAN_PATH" 2>/dev/null && log "OK: guardian cron 自愈在" || log "!! guardian.sh 缺 cron lifeline"
+  grep -Fq "mkdir -p" "$GUARDIAN_PATH" 2>/dev/null && log "OK: guardian 建运行时目录在" || log "!! guardian.sh 缺 mkdir"
+  grep -Fq "cron lifeline" "$GUARDIAN_PATH" 2>/dev/null && log "OK: guardian cron 自愈在" || log "!! guardian.sh 缺 cron lifeline"
 fi
 if [ "$WARN_INIT_ENABLED" = "1" ] && [ -x /etc/init.d/shellcrash ]; then
   if /etc/init.d/shellcrash enabled 2>/dev/null; then
@@ -172,7 +173,12 @@ fi
 section "4. 启动"
 mkdir -p "$RUNTIME_DIR"
 core_up() {
-  pidof "$CORE_PROC" >/dev/null 2>&1 && netstat -lntp 2>/dev/null | grep -q ":$MIXED_PORT"
+  pidof "$CORE_PROC" >/dev/null 2>&1 || return 1
+  # 端口边界：原来是 grep -q ":$MIXED_PORT" 前缀匹配 —— 监听 789 端口时 7892 也会命中，
+  # 端口没起来却判成「已在运行」，于是永远不启动核心。要求端口后紧跟空白
+  # （netstat 本地地址列后面就是空白），并把非数字端口直接判否，别让正则被配置带崩。
+  case "$MIXED_PORT" in ''|*[!0-9]*) return 1 ;; esac
+  netstat -lntp 2>/dev/null | grep -qE "[:.]$MIXED_PORT[[:space:]]"
 }
 if core_up; then
   log "已在运行，跳过启动"
