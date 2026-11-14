@@ -50,6 +50,11 @@ ROUTER_HEALTH_DIR=/etc/router-health
 # 运行态目录（tmpfs，重启即清）与守护日志
 #RUNTIME_DIR=/tmp/ShellCrash
 #GUARDIAN_LOG=/tmp/ShellCrash/guardian.log
+# 守护每轮收尾写的机器可读状态（tmpfs，多行 key=value）：原子写，ops-status.sh 与
+# AX3000TOpenwrt 的 health-snapshot.sh --json 都按这个格式读
+# 守护状态文件。留空时 ops 版守护写 ops-guardian.state，ops-status.sh 先探测它、
+# 再回退 AX3000TOpenwrt 版写的 guardian.state —— 两版同装不互相覆盖。
+#GUARDIAN_STATE=/tmp/ShellCrash/ops-guardian.state
 
 # 端口：控制 API / 透明代理 / 混合口 / DNS
 #CTRL_HOST=127.0.0.1
@@ -161,3 +166,22 @@ ROUTER_HEALTH_DIR=/etc/router-health
 # 组名换了自己覆盖，不用改脚本。
 #STATS_AIRPORT_GROUPS="你的机场出口组A|你的机场出口组B"
 #STATS_DIRECT_GROUPS="^DIRECT$|你的直连组名"
+
+# ---------------------------------------------------------------------------
+# ops-status.sh：只读健康快照
+# 它按本文件里的路径键去读各脚本的日志 / 锁 / 状态文件，所以：
+#   * 改了 GUARDIAN_LOG / BULK_LOG / BULK_STATE / BULK_SPEED_STATE / BULK_TRIED /
+#     BULK_LOCK / RUNTIME_DIR / STATS_DIR / ROUTER_HEALTH_DIR / GUARDIAN_STATE，
+#     快照会跟着变，不用改脚本；
+#   * 快照里 secret 只出现「有 / 无」，绝不打印内容；
+#   * 它**不取实例锁**，可以和守护同时跑，也不会写任何设备状态。
+# 对外契约（schema 与字段含义）见 docs/ARCHITECTURE.md 的「只读健康快照」一节。
+# ---------------------------------------------------------------------------
+
+# 跨仓机器可读状态口（AX3000TOpenwrt 侧产出，本仓只读）：两个 .state 是多行
+# key=value，health.json 是单行 JSON。health.json 与 health-*.log 不在同一个目录
+# 不是笔误：日志进闪存目录留时间线，结构化快照写 tmpfs，不占闪存写入预算。
+#DEST_GUARD_STATE=/tmp/ShellCrash/dest-guard.state
+#HEALTH_JSON=/tmp/router-health/health.json
+# 状态口多久没更新算「陈旧」（秒）：守护 cron 是 */5，默认 1800 = 连丢 6 轮
+#CROSS_STATE_STALE_SEC=1800

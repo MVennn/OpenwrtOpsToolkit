@@ -11,7 +11,14 @@
 # 用法：
 #   sh guardian.sh                          跑一轮
 #   sh guardian.sh --dry-run                只检测、只报告，不做任何改动
+#   sh guardian.sh --status                 只读体检：各组当前出口、内存与 /tmp 水位、nft 表，
+#                                           不取实例锁、不写日志、不写状态文件
 #   DEVICE_CONF=/etc/openwrt-ops/device.conf sh guardian.sh
+#
+# 机器可读状态：每轮收尾原子写 $RUNTIME_DIR/ops-guardian.state（多行 key=value，tmpfs，
+# 不占闪存写入）。键名与 AX3000TOpenwrt 的 guardian.state 完全对齐，但**文件名分开**：
+# 两版守护同时装在同一台设备上时，同名文件会被后写者覆盖，下游计数来回跳（P57）。
+# 消费方 ops-status.sh 按 ops-guardian.state → guardian.state 的顺序探测。
 #
 # 所有「只对某一台机器成立」的值（策略组名、节点名、路径、端口、阈值）
 # 全部来自配置，脚本本身不含任何设备标识 —— 见 conf/device.conf.example。
@@ -30,7 +37,7 @@ if [ -z "$OPS_CONF" ]; then
 fi
 
 # 这些变量如果本来就在环境里，优先级高于 device.conf —— 先记住，载入后再还原
-_OPS_VARS="CRASHDIR RUNTIME_DIR CTRL_HOST CTRL_PORT PROXY_PORT MIXED_PORT DNS_PORT CORE_PROC NFT_DIR NFT_TABLES CRON_FILE GUARDIAN_LOG START_SH TASK_SH LEGACY_WD API_CFG AI_GROUP AI_FALLBACK_GROUP CLEAN_GROUP CLEAN_NODE CL_CANDIDATES POOL_GROUP POOL_FALLBACK_GROUP MANUAL_GROUP AI_BAD_NODES POOL_BLOCKED_NODES PROBE_URL CLEAN_PROBE_URL CC_PROBE_URL CC_EXPECT EXIT_MAX_SEC CLEAN_EXIT_MAX_SEC MEM_LOW_MB TMPFS_WARN_PCT FALLBACK_HEAL_INTERVAL ALIVE_STALE_SEC TMPFS_CLEAN_FILES ROUTER_HEALTH_DIR"
+_OPS_VARS="CRASHDIR RUNTIME_DIR CTRL_HOST CTRL_PORT PROXY_PORT MIXED_PORT DNS_PORT CORE_PROC NFT_DIR NFT_TABLES CRON_FILE GUARDIAN_LOG START_SH TASK_SH LEGACY_WD API_CFG AI_GROUP AI_FALLBACK_GROUP CLEAN_GROUP CLEAN_NODE CL_CANDIDATES POOL_GROUP POOL_FALLBACK_GROUP MANUAL_GROUP AI_BAD_NODES POOL_BLOCKED_NODES PROBE_URL CLEAN_PROBE_URL CC_PROBE_URL CC_EXPECT EXIT_MAX_SEC CLEAN_EXIT_MAX_SEC MEM_LOW_MB TMPFS_WARN_PCT FALLBACK_HEAL_INTERVAL ALIVE_STALE_SEC TMPFS_CLEAN_FILES ROUTER_HEALTH_DIR GUARDIAN_STATE"
 _OPS_SNAP=""
 for _v in $_OPS_VARS; do
   eval "[ \"\${${_v}+set}\" = set ]" || continue
@@ -63,6 +70,9 @@ NFT_DIR="${NFT_DIR:-/etc}"
 NFT_TABLES="${NFT_TABLES:-quicguard googleroute googlecn}"
 CRON_FILE="${CRON_FILE:-/etc/crontabs/root}"
 GUARDIAN_LOG="${GUARDIAN_LOG:-$RUNTIME_DIR/guardian.log}"
+# 机器可读状态文件（tmpfs）：与 AX3000TOpenwrt 的 guardian.state 同键名同格式，
+# 见文件头「机器可读状态」与 docs/ARCHITECTURE.md §4.2。
+GUARDIAN_STATE="${GUARDIAN_STATE:-$RUNTIME_DIR/ops-guardian.state}"
 START_SH="${START_SH:-$CRASHDIR/start.sh}"
 TASK_SH="${TASK_SH:-$CRASHDIR/task/task.sh}"
 LEGACY_WD="${LEGACY_WD:-$CRASHDIR/starts/start_legacy_wd.sh}"
@@ -98,15 +108,27 @@ TMPFS_CLEAN_FILES="${TMPFS_CLEAN_FILES:-/tmp/pre-reboot-config.tar.gz /tmp/mihom
 # ---------------------------------------------------------------------------
 # 运行时
 # ---------------------------------------------------------------------------
-# 干跑模式：只检测、只报告，不改设备任何状态
+# 三种模式：run（默认）/ dry（干跑：只检测、只报告，不改设备任何状态）/
+# status（只读体检：不取锁、不写日志、不写状态文件，可与 cron 里的守护同时跑）
 DRY_RUN="${DRY_RUN:-0}"
+MODE=run
 case "${1:-}" in
-  --dry-run|-n) DRY_RUN=1 ;;
+  --dry-run|-n) DRY_RUN=1; MODE=dry ;;
+  --status) MODE=status ;;
+  -h|--help) awk 'NR>1{ if(/^# =====/){ if(++n==2) exit; if(n==1) next } print }' "$0"; exit 0 ;;
+  "") ;;
+  *) echo "未知参数：$1（可用：--dry-run / --status / --help）" >&2; exit 2 ;;
 esac
 
-mkdir -p "$RUNTIME_DIR" 2>/dev/null
+# --status 是只读体检：不建目录、不写日志，否则「只看一眼」也会在设备上留痕，
+# 与 usage 承诺的「不改设备任何状态」相反。
+if [ "$MODE" != "status" ]; then
+  mkdir -p "$RUNTIME_DIR" 2>/dev/null
+fi
 LOG="$GUARDIAN_LOG"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+if [ "$MODE" != "status" ]; then
+  mkdir -p "$(dirname "$LOG")" 2>/dev/null
+fi
 CURL="${CURL:-/usr/bin/curl}"
 [ -x "$CURL" ] || CURL=curl
 NFT="${NFT:-/usr/sbin/nft}"
@@ -115,30 +137,66 @@ CTRL="http://$CTRL_HOST:$CTRL_PORT"
 PROXY="http://127.0.0.1:$PROXY_PORT"
 PIDFILE="$RUNTIME_DIR/shellcrash.pid"
 ALIVEF="$RUNTIME_DIR/.proxy_alive"
+# 收尾要写进 guardian.state 的三个出口值：取本轮读到的 now，修复成功后改成目标组。
+# 这样收尾写状态时不用再打控制 API（省 3 次往返、3 个 fork）。
+ST_AI=""; ST_POOL=""; ST_CLEAN=""
 
-# API secret 从设备上的配置现读，不写死在脚本里
-API_SECRET=$(sed -n "s/^secret=//p" "$API_CFG" 2>/dev/null | head -1)
+# API secret 从设备上的配置现读，不写死在脚本里。
+# shared:secret-read —— 与 bulk-guard.sh / traffic-stats.sh 逐字同一块，由
+# tools/check-shell-shared-blocks.py 校验漂移（P35：守卫脚本逐仓复制会漂移）。
+# tr -d '\r' 兜底：配置文件被 Windows 侧编辑过、或 apk 升级写成 CRLF 时，
+# secret 尾部会带 \r，症状是控制 API 静默 401/无响应，极难查。
+# >>> shared:secret-read >>>
+API_SECRET=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1 | tr -d '\r')
+# <<< shared:secret-read <<<
 SECRET="$API_SECRET"
 AUTH="Authorization: Bearer $SECRET"
 
+# 每轮动作计数：收尾写进 guardian.state，排查时不用再 tail 日志拼「这轮修了什么」。
+FIXES=0; ERRORS=0; WARNS=0; WOULDFIX=0; ALERTS=0
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log() {
+  case "$*" in
+    FIX:*) FIXES=$((FIXES + 1)) ;;
+    ERROR:*) ERRORS=$((ERRORS + 1)) ;;
+    ALERT:*) ALERTS=$((ALERTS + 1)) ;;
+    WARN:*) WARNS=$((WARNS + 1)) ;;
+    DRY-RUN:*) WOULDFIX=$((WOULDFIX + 1)) ;;
+  esac
   echo "$(ts) $*" >> "$LOG"
   case "$*" in
     *FIX*|*ALERT*|*ERROR*|*WARN*) logger -t guardian -p daemon.warn "$*" 2>/dev/null ;;
   esac
 }
+# 策略组名进 URL 路径必须转义 % 空格 # ? &（P33）
+# >>> shared:enc >>>
 enc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g'; }
+# <<< shared:enc <<<
+# >>> shared:json-esc >>>
 json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
-grp() { $CURL -s -m 5 -H "$AUTH" "$CTRL/proxies/$(enc "$1")" 2>/dev/null | grep -oE '"now":"[^"]*"' | head -1 | sed 's/"now":"//;s/"$//'; }
+# <<< shared:json-esc <<<
+# 从 /proxies 响应里取一个字段（now / fixed）：单次 awk 取第一个匹配。
+# 原来 grep -oE|head|sed 三个进程，一轮要调 8–10 次，等于白扔 16–20 个 fork。
+# >>> shared:api-field >>>
+api_field() {
+  awk -v f="$1" 'BEGIN{k="\"" f "\":\""; n=length(k)}
+    {p=index($0,k); if(p){s=substr($0,p+n); q=index(s,"\""); print substr(s,1,q-1); exit}}'
+}
+# <<< shared:api-field <<<
+grp() { $CURL -s -m 5 -H "$AUTH" "$CTRL/proxies/$(enc "$1")" 2>/dev/null | api_field now; }
+# 切组：DRY_RUN 只回显不动作；正常路径回 HTTP 状态码
+# >>> shared:put >>>
 put() {
   if [ "$DRY_RUN" = "1" ]; then
     log "DRY-RUN: 将把「$1」切到「$2」"
     echo 204
     return 0
   fi
-  $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' -d "{\"name\":\"$(json_esc "$2")\"}" 2>/dev/null
+  $CURL -s -m 8 -o /dev/null -w "%{http_code}" -H "$AUTH" \
+    -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$(json_esc "$2")\"}" 2>/dev/null
 }
+# <<< shared:put <<<
 [ -z "$API_SECRET" ] && log "ERROR: 未从 $API_CFG 读到 secret，本轮控制 API 动作将全部失效"
 
 # 同一时间只允许一个实例：3.6 逐个候选探测最坏要跑两分多钟，加上 3.5 与第 1 节
@@ -164,7 +222,8 @@ acquire_lock() {
   echo "$_now" > "$GUARDIAN_LOCK/ts"
   trap 'rm -f "$GUARDIAN_LOCK/pid" "$GUARDIAN_LOCK/ts" 2>/dev/null; rmdir "$GUARDIAN_LOCK" 2>/dev/null' EXIT INT TERM HUP
 }
-acquire_lock
+# 实例锁在函数定义之后才取：--status 是只读体检，绝不能占锁（否则会和 cron 里的
+# 守护互相跳过一轮）。取锁点见下面 log_trim 之后。
 
 # 通配匹配：$1 = 节点名，$2 = `|` 分隔的通配模式串；命中返回 0
 match_patterns() {
@@ -197,11 +256,92 @@ eff_node() {
   fi
 }
 
-# 日志自限容
-if [ -f "$LOG" ]; then
-  SZ=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-  [ "$SZ" -gt 204800 ] && { tail -60 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; }
+# 日志自限容：日志在 tmpfs（P1/P17），超 200KB 截成最后 60 行。
+# 临时名带 $$：锁过期叠轮时两个实例不会互踩同一个 $LOG.tmp。
+# >>> shared:log-trim >>>
+log_trim() {
+  [ -f "$1" ] || return 0
+  _lt_sz=$(wc -c < "$1" 2>/dev/null || echo 0)
+  case "$_lt_sz" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$_lt_sz" -gt "${2:-204800}" ] || return 0
+  tail -n "${3:-60}" "$1" > "$1.tmp.$$" 2>/dev/null && mv -f "$1.tmp.$$" "$1" || rm -f "$1.tmp.$$"
+}
+# <<< shared:log-trim <<<
+
+# ---------- 只读体检（--status）----------
+# 只打印现状：不取实例锁、不写日志、不写状态文件、不改任何设备状态。
+status_report() {
+  echo "== guardian 只读体检 =="
+  echo "配置: ${OPS_CONF:-<无>}（环境变量 > device.conf > 内置默认）"
+  echo "模式: $MODE（--dry-run 下所有动作只记录不执行）"
+  if $CURL -s -m 5 -H "$AUTH" "$CTRL/version" >/dev/null 2>&1; then
+    echo "核心: API 有响应（$CTRL/version）"
+  elif pidof "$CORE_PROC" >/dev/null 2>&1; then
+    echo "核心: 进程在但 API 无响应（$CORE_PROC，可能正在热重载）"
+  else
+    echo "核心: 进程不在（$CORE_PROC）"
+  fi
+  for _g in "$AI_GROUP" "$AI_FALLBACK_GROUP" "$CLEAN_GROUP" "$POOL_GROUP"; do
+    [ -n "$_g" ] || continue
+    _now=$(grp "$_g")
+    if [ -z "$_now" ]; then
+      echo "组「$_g」: 读不到（控制 API 无响应，或组名不在配置里）"
+      continue
+    fi
+    _eff=$(eff_node "$_g")
+    if [ -n "$MANUAL_GROUP" ] && [ "$_eff" != "$_now" ]; then
+      echo "组「$_g」: now=「$_now」 生效=「$_eff」（经 $MANUAL_GROUP 解析）"
+    else
+      echo "组「$_g」: now=「$_now」"
+    fi
+  done
+  _m=$(awk '/^MemAvailable/{a=$2} /^SwapFree/{s=$2}
+            END{if(a==""){exit} printf "%d %d", a/1024, s/1024}' /proc/meminfo 2>/dev/null)
+  if [ -n "$_m" ]; then
+    _av=${_m%% *}; _sf=${_m##* }
+    echo "内存: MemAvailable ${_av}MB + SwapFree/2 $((_sf / 2))MB = 宽松 $((_av + _sf / 2))MB（阈值 ${MEM_LOW_MB}MB）"
+  else
+    echo "内存: 读不到 /proc/meminfo"
+  fi
+  _d=$(df -k /tmp 2>/dev/null | awk 'END{print $3" "$2}')
+  _u=${_d%% *}; _tk=${_d##* }
+  if [ -n "$_u" ] && [ -n "$_tk" ] && [ "$_tk" -gt 0 ] 2>/dev/null; then
+    echo "/tmp: $((_u * 100 / _tk))%（${_u}K/${_tk}K，阈值 ${TMPFS_WARN_PCT}%）"
+  else
+    echo "/tmp: 读不到 df"
+  fi
+  for _nt in $NFT_TABLES; do
+    [ -z "$_nt" ] && continue
+    if $NFT list table inet "$_nt" >/dev/null 2>&1; then
+      echo "nft 表 inet $_nt: 在位"
+    elif [ -f "$NFT_DIR/$_nt.nft" ]; then
+      echo "nft 表 inet $_nt: 缺失（可从 $NFT_DIR/$_nt.nft 重载）"
+    else
+      echo "nft 表 inet $_nt: 缺失且 $NFT_DIR/$_nt.nft 不存在"
+    fi
+  done
+  if [ -d "$GUARDIAN_LOCK" ]; then
+    echo "实例锁: 占用中（pid=$(cat "$GUARDIAN_LOCK/pid" 2>/dev/null)，ts=$(cat "$GUARDIAN_LOCK/ts" 2>/dev/null)）"
+  else
+    echo "实例锁: 空闲"
+  fi
+  if [ -f "$GUARDIAN_STATE" ]; then
+    echo "上一轮状态（$GUARDIAN_STATE）:"
+    sed -e 's/^/  /' "$GUARDIAN_STATE" 2>/dev/null
+  else
+    echo "上一轮状态: 还没有（$GUARDIAN_STATE 不存在，守护没跑过）"
+  fi
+  echo "日志: $LOG（$(wc -c < "$LOG" 2>/dev/null || echo 0)B）"
+}
+
+# --status 必须在取锁之前退出：否则会和 cron 里的守护互相跳过一轮。
+if [ "$MODE" = "status" ]; then
+  status_report
+  exit 0
 fi
+
+log_trim "$LOG"
+acquire_lock
 
 # ---------- 1) 核心存活（OOM 会被内核杀掉；服务关闭会清 pid 文件，故用「最近活着」状态文件兜底） ----------
 if $CURL -s -m 5 -H "$AUTH" "$CTRL/version" >/dev/null 2>&1; then
@@ -234,11 +374,13 @@ fi
 # ---------- 2) AI 组出口必须干净 ----------
 if [ -n "$AI_GROUP" ] && [ -n "$AI_FALLBACK_GROUP" ] && [ -n "$AI_BAD_NODES" ]; then
   AI_NOW=$(grp "$AI_GROUP")
+  ST_AI="$AI_NOW"
   if [ -n "$AI_NOW" ]; then
     AI_EFF=$(eff_node "$AI_GROUP")
     if match_patterns "$AI_EFF" "$AI_BAD_NODES"; then
       if [ "$(put "$AI_GROUP" "$AI_FALLBACK_GROUP")" = "204" ]; then
         log "FIX: $AI_GROUP 从「$AI_NOW」(实际出口「$AI_EFF」) 复原为「$AI_FALLBACK_GROUP」（该出口不可信）"
+        ST_AI="$AI_FALLBACK_GROUP"
       else
         log "ERROR: 切回 $AI_FALLBACK_GROUP 失败（控制 API 拒绝）"
       fi
@@ -254,6 +396,7 @@ if [ -n "$CLEAN_NODE" ] && [ -n "$AI_BAD_NODES" ]; then
     if [ -n "$NOW" ] && [ "$NOW" != "$CLEAN_NODE" ] && match_patterns "$NOW" "$AI_BAD_NODES"; then
       if [ "$(put "$g" "$CLEAN_NODE")" = "204" ]; then
         log "FIX: $g 从「$NOW」切到干净出口「$CLEAN_NODE」"
+        [ "$g" = "$CLEAN_GROUP" ] && ST_CLEAN="$CLEAN_NODE"
       else
         log "ERROR: $g 切到 $CLEAN_NODE 失败"
       fi
@@ -265,6 +408,7 @@ fi
 # 两者通常指向同一批干净节点，但组成员会各自漂移；对齐入口只改链路、不改出口。
 if [ -n "$CLEAN_GROUP" ] && [ -n "$AI_FALLBACK_GROUP" ]; then
   CL_NOW=$(grp "$CLEAN_GROUP")
+  ST_CLEAN="$CL_NOW"
   AW_NOW=$(grp "$AI_FALLBACK_GROUP")
   if [ -n "$CL_NOW" ] && [ -n "$AW_NOW" ] && [ "$CL_NOW" != "$AW_NOW" ]; then
     if [ "$(put "$AI_FALLBACK_GROUP" "$CL_NOW")" = "204" ]; then
@@ -278,11 +422,13 @@ fi
 # ---------- 3) 通用池：只有落在不可用清单里才复位 ----------
 if [ -n "$POOL_GROUP" ] && [ -n "$POOL_FALLBACK_GROUP" ] && [ -n "$POOL_BLOCKED_NODES" ]; then
   NODE_NOW=$(grp "$POOL_GROUP")
+  ST_POOL="$NODE_NOW"
   if [ -n "$NODE_NOW" ]; then
     NODE_EFF=$(eff_node "$POOL_GROUP")
     if match_patterns "$NODE_EFF" "$POOL_BLOCKED_NODES"; then
       if [ "$(put "$POOL_GROUP" "$POOL_FALLBACK_GROUP")" = "204" ]; then
         log "FIX: $POOL_GROUP 从「$NODE_NOW」(实际出口「$NODE_EFF」) 复原为「$POOL_FALLBACK_GROUP」"
+        ST_POOL="$POOL_FALLBACK_GROUP"
       else
         log "ERROR: 切回 $POOL_FALLBACK_GROUP 失败（控制 API 拒绝）"
       fi
@@ -305,6 +451,7 @@ if [ -n "$POOL_GROUP" ] && [ -n "$POOL_FALLBACK_GROUP" ]; then
     if [ "$BAD" = "1" ] || ge_sec "$MS" "$EXIT_MAX_SEC"; then
       if [ "$(put "$POOL_GROUP" "$POOL_FALLBACK_GROUP")" = "204" ]; then
         log "FIX: 通用出口劣化（HTTP ${P1%% *}/${P2%% *}，耗时 ${MS}s，阈值 ${EXIT_MAX_SEC}s），复位为「$POOL_FALLBACK_GROUP」"
+        ST_POOL="$POOL_FALLBACK_GROUP"
       else
         log "ERROR: 通用出口复位失败（控制 API 拒绝）"
       fi
@@ -331,6 +478,7 @@ clean_exit_bad() {
 }
 if [ -n "$CLEAN_GROUP" ] && [ -n "$CL_CANDIDATES" ]; then
   CUR_CL=$(grp "$CLEAN_GROUP")
+  [ -z "$ST_CLEAN" ] && ST_CLEAN="$CUR_CL"
   if [ -n "$CUR_CL" ] && clean_exit_bad; then
     if [ "$DRY_RUN" = "1" ]; then
       log "DRY-RUN: 干净出口劣化（当前入口「$CUR_CL」），本应按候选顺序轮换"
@@ -350,6 +498,7 @@ if [ -n "$CLEAN_GROUP" ] && [ -n "$CL_CANDIDATES" ]; then
       if [ -n "$FIXED" ]; then
         [ -n "$AI_FALLBACK_GROUP" ] && put "$AI_FALLBACK_GROUP" "$FIXED" >/dev/null 2>&1
         log "FIX: 干净出口劣化（当前入口「$CUR_CL」），已换到「$FIXED」；兜底组同步"
+        ST_CLEAN="$FIXED"
       else
         [ "$CUR_CL" != "$(grp "$CLEAN_GROUP")" ] && put "$CLEAN_GROUP" "$CUR_CL" >/dev/null 2>&1
         log "ALERT: 干净出口候选全部劣化（已保持「$CUR_CL」）；不降级到不可信节点，目标站可能按地区拒绝服务"
@@ -361,7 +510,9 @@ fi
 # ---------- 4) nft 表补载 ----------
 for t in $NFT_TABLES; do
   [ -z "$t" ] && continue
-  if ! $NFT list table inet $t >/dev/null 2>&1; then
+  # "$t" 必须加引号：NFT_TABLES 来自 device.conf，含 * ? [ 时裸 $t 会被当成 glob
+  # 展开成当前目录下的文件名，nft 收到的是完全无关的表名（P56）。
+  if ! $NFT list table inet "$t" >/dev/null 2>&1; then
     if [ ! -f "$NFT_DIR/$t.nft" ]; then
       log "ERROR: nft 表 inet $t 缺失且 $NFT_DIR/$t.nft 不存在"
     elif [ "$DRY_RUN" = "1" ]; then
@@ -429,8 +580,11 @@ if [ -n "$EFFECTIVE" ] && [ "$EFFECTIVE" -lt "$MEM_LOW_MB" ]; then
 fi
 
 # /tmp 是内存盘，一旦被写满会连锁 OOM。超阈值就清掉已知的临时大文件。
-TMPK=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $3}')
-TMPT=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $2}')
+# 一次 df 取「已用/总量」两个字段：原来连跑两次 df（各 2 个 fork），
+# 且两次读数之间 /tmp 还在涨，算出来的百分比本身就不自洽。
+TMPDF=$(df -k /tmp 2>/dev/null | awk 'END{print $3" "$2}')
+TMPK=${TMPDF%% *}
+TMPT=${TMPDF##* }
 if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
   TMPP=$((TMPK * 100 / TMPT))
   if [ "$TMPP" -ge "$TMPFS_WARN_PCT" ]; then
@@ -438,8 +592,13 @@ if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
     for f in $TMPFS_CLEAN_FILES; do
       [ -z "$f" ] && continue
       [ -e "$f" ] || continue
+      # 白名单式清理（P28）。前缀判断不够：/tmp/../etc/passwd 也能通过 /tmp/*，
+      # 而 "/tmp/" 自身会命中 /tmp/*（* 可匹配空串），rm -rf 就是清空整个 tmpfs。
+      # 所以先拦 .. 与 /tmp 本身，再要求 /tmp/ 后至少还有一个字符。
       case "$f" in
-        /tmp/*) ;;
+        *..*) log "SKIP: TMPFS_CLEAN_FILES 路径含 ..（$f），拒绝清理"; continue ;;
+        /tmp|/tmp/) log "SKIP: TMPFS_CLEAN_FILES 不允许指向 /tmp 本身"; continue ;;
+        /tmp/?*) ;;
         *) log "SKIP: TMPFS_CLEAN_FILES 含 /tmp 之外的路径 $f，拒绝清理"; continue ;;
       esac
       if [ "$DRY_RUN" = "1" ]; then
@@ -449,14 +608,16 @@ if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
         log "FIX: 已清理 /tmp 临时大文件 $f"
       fi
     done
-    TMPK2=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $3}')
-    log "INFO: /tmp 清理后占用 ${TMPK2}K/${TMPT}K"
+    TMPK2=$(df -k /tmp 2>/dev/null | awk 'END{print $3}')
+    log "INFO: /tmp 清理后占用 ${TMPK2:-?}K/${TMPT}K"
   fi
 fi
 
 # cron lifeline: start.sh stop 会重写 crontab 并删掉 legacy 看门狗行,这里补回去
 if [ -n "$LEGACY_WD" ] && [ -f "$LEGACY_WD" ]; then
-  if ! grep -q "$(basename "$LEGACY_WD")" "$CRON_FILE" 2>/dev/null; then
+  # -F：路径里的 . * [ 等字符按字面匹配，否则一个带点的路径会误判「已存在」而漏补（P33）
+  _wd_base=${LEGACY_WD##*/}
+  if ! grep -Fq "$_wd_base" "$CRON_FILE" 2>/dev/null; then
     if [ "$DRY_RUN" = "1" ]; then
       log "DRY-RUN: 本应补回 legacy 看门狗 cron 行"
     else
@@ -466,4 +627,29 @@ if [ -n "$LEGACY_WD" ] && [ -f "$LEGACY_WD" ]; then
     fi
   fi
 fi
+
+# ---------- 收尾：机器可读状态（tmpfs，不占闪存写入）----------
+# 多行 key=value（值可含空格，按第一个 = 切分）：ops-status.sh 与 AX3000TOpenwrt 的
+# health-snapshot.sh --json 都按这个格式读，键名与 AX3000TOpenwrt 的 guardian.state 对齐。
+# 原子写（.tmp.$$ + mv）：读者不会读到写了一半的文件（P54）。
+# --status 在上面就退出了，不会覆盖真实状态；dry-run 也写，靠 mode 区分。
+ST_TMP="$GUARDIAN_STATE.tmp.$$"
+{
+  printf 'ts=%s\n' "$(date +%s)"
+  printf 'schema=openwrt-ops-guardian/1\n'
+  printf 'mode=%s\n' "$MODE"
+  printf 'dry_run=%s\n' "$DRY_RUN"
+  printf 'fixes=%s\n' "$FIXES"
+  printf 'errors=%s\n' "$ERRORS"
+  printf 'alerts=%s\n' "$ALERTS"
+  printf 'warns=%s\n' "$WARNS"
+  printf 'wouldfix=%s\n' "$WOULDFIX"
+  printf 'mem_avail_mb=%s\n' "${AVAIL:-}"
+  printf 'mem_eff_mb=%s\n' "${EFFECTIVE:-}"
+  printf 'tmp_pct=%s\n' "${TMPP:-}"
+  printf 'pool=%s\n' "$ST_POOL"
+  printf 'ai_exit=%s\n' "$ST_AI"
+  printf 'clean_node=%s\n' "$ST_CLEAN"
+} > "$ST_TMP" 2>/dev/null && mv -f "$ST_TMP" "$GUARDIAN_STATE" 2>/dev/null || rm -f "$ST_TMP" 2>/dev/null
+
 exit 0
