@@ -150,7 +150,13 @@ CURL="${CURL:-/usr/bin/curl}"
 CTRL="http://$CTRL_HOST:$CTRL_PORT"
 PROXY="http://127.0.0.1:$PROXY_PORT"
 
-API_SECRET=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1)
+# shared:secret-read —— 与 guardian.sh / traffic-stats.sh 逐字同一块，由
+# tools/check-shell-shared-blocks.py 校验漂移（P35：守卫脚本逐仓复制会漂移）。
+# tr -d '\r' 兜底：配置文件被 Windows 侧编辑过、或 apk 升级写成 CRLF 时，
+# secret 尾部会带 \r，症状是控制 API 静默 401/无响应，极难查。
+# >>> shared:secret-read >>>
+API_SECRET=$(sed -n 's/^secret=//p' "$API_CFG" 2>/dev/null | head -1 | tr -d '\r')
+# <<< shared:secret-read <<<
 AUTH="Authorization: Bearer $API_SECRET"
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
@@ -160,20 +166,37 @@ log() {
     *FIX*|*ALERT*|*ERROR*|*WARN*) logger -t bulk-guard -p daemon.warn "$*" 2>/dev/null ;;
   esac
 }
+# 策略组名进 URL 路径必须转义 % 空格 # ? &（P33）
+# >>> shared:enc >>>
 enc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g'; }
+# <<< shared:enc <<<
+# >>> shared:json-esc >>>
 json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+# <<< shared:json-esc <<<
+# 日志自限容（与 guardian.sh 逐字同一块）：日志在 tmpfs（P1/P17），超 200KB 截成最后 60 行
+# >>> shared:log-trim >>>
+log_trim() {
+  [ -f "$1" ] || return 0
+  _lt_sz=$(wc -c < "$1" 2>/dev/null || echo 0)
+  case "$_lt_sz" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$_lt_sz" -gt "${2:-204800}" ] || return 0
+  tail -n "${3:-60}" "$1" > "$1.tmp.$$" 2>/dev/null && mv -f "$1.tmp.$$" "$1" || rm -f "$1.tmp.$$"
+}
+# <<< shared:log-trim <<<
 [ -z "$API_SECRET" ] && log "ERROR: 未从 $API_CFG 读到 secret，本轮控制 API 动作将全部失效"
 
 api_get() { $CURL -s -m 5 -H "$AUTH" "$CTRL$1" 2>/dev/null; }
 
-grp() {
-  api_get "/proxies/$(enc "$1")" \
-    | grep -oE '"now":"[^"]*"' | head -1 | sed 's/"now":"//;s/"$//'
+# >>> shared:api-field >>>
+api_field() {
+  awk -v f="$1" 'BEGIN{k="\"" f "\":\""; n=length(k)}
+    {p=index($0,k); if(p){s=substr($0,p+n); q=index(s,"\""); print substr(s,1,q-1); exit}}'
 }
-grp_fixed() {
-  api_get "/proxies/$(enc "$1")" \
-    | grep -oE '"fixed":"[^"]*"' | head -1 | sed 's/"fixed":"//;s/"$//'
-}
+# <<< shared:api-field <<<
+grp() { api_get "/proxies/$(enc "$1")" | api_field now; }
+grp_fixed() { api_get "/proxies/$(enc "$1")" | api_field fixed; }
+# 切组：DRY_RUN 只回显不动作；正常路径回 HTTP 状态码
+# >>> shared:put >>>
 put() {
   if [ "$DRY_RUN" = "1" ]; then
     log "DRY-RUN: 将把「$1」切到「$2」"
@@ -184,6 +207,7 @@ put() {
     -X PUT "$CTRL/proxies/$(enc "$1")" -H 'Content-Type: application/json' \
     -d "{\"name\":\"$(json_esc "$2")\"}" 2>/dev/null
 }
+# <<< shared:put <<<
 
 # ---- 状态文件：last_probe / cooldown_until / last_moving / fails -------------
 state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" 2>/dev/null | head -1; }
@@ -233,10 +257,12 @@ sample_rate() {
 # ---- 节点吞吐缓存：epoch|bps|node ------------------------------------------
 speed_set() {
   [ -f "$SPEED" ] || : > "$SPEED"
+  # 临时名带 $$：两个实例同时写吞吐缓存时不会把对方的半截文件 mv 成本结果
+  _sp_tmp="$SPEED.tmp.$$"
   awk -F'|' -v n="$1" -v now="$NOW_TS" -v ttl="$SPEED_TTL" \
-    'now-$1<=ttl && $3!=n' "$SPEED" > "$SPEED.tmp" 2>/dev/null
-  echo "$NOW_TS|$2|$1" >> "$SPEED.tmp"
-  mv "$SPEED.tmp" "$SPEED"
+    'now-$1<=ttl && $3!=n' "$SPEED" > "$_sp_tmp" 2>/dev/null
+  echo "$NOW_TS|$2|$1" >> "$_sp_tmp"
+  mv "$_sp_tmp" "$SPEED"
 }
 # 缓存里还有效的节点，按吞吐从高到低
 speed_list() {
@@ -538,11 +564,10 @@ acquire_lock() {
   trap 'rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null; rmdir "$LOCK" 2>/dev/null; rm -f "$RUNTIME_DIR"/.bulk_guard_snap.$$.* "$RUNTIME_DIR"/.bulk_guard_cands.$$ 2>/dev/null' EXIT INT TERM HUP
 }
 
-# 日志自限容（与 guardian.sh 一致）
-if [ -f "$LOG" ]; then
-  SZ=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-  [ "$SZ" -gt 204800 ] && { tail -60 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; }
-fi
+# 日志自限容。原来这里自带一份内联实现且临时名固定为 "$LOG.tmp"：本行在
+# acquire_lock 之前执行，锁过期叠轮时两个实例会互踩同一个临时文件。
+# 统一走 shared:log-trim（临时名带 $$），行为不变。
+log_trim "$LOG"
 
 if [ -z "$GROUP" ] || [ -z "$PUBLIC" ] || [ -z "$AIRPORT" ]; then
   log "WARN: 未配置 BULK_GROUP / BULK_PUBLIC / BULK_AIRPORT，跳过"
