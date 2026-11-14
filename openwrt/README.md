@@ -1,25 +1,26 @@
 # openwrt/ —— OpenWrt 设备侧运维脚本
 
-> **一句话**：七个可以直接扔到任意 OpenWrt 设备上跑的运维脚本 ——
+> **一句话**：八个可以直接扔到任意 OpenWrt 设备上跑的运维脚本 ——
 > 网络守护、大流量守卫、流量归因、离线恢复、开机自启模板、ShellCrash 更新后回灌补丁、
-> 低内存设备的 zram 压缩 swap；
+> 低内存设备的 zram 压缩 swap，以及一个只读的健康快照 / 自检；
 > **不含任何设备标识**，所有跟「你这台机器」有关的值都在 `conf/device.conf` 里。
 
 ---
 
-## 1. 这七个脚本
+## 1. 这八个脚本
 
 | 文件 | 干什么 | 典型调用 |
 |---|---|---|
-| `guardian.sh` | 网络守护：核心存活、nft 表补载、策略组出口复原、出口健康、`/tmp` 水位 | cron `*/5 * * * *`（试跑加 `--dry-run`） |
+| `guardian.sh` | 网络守护：核心存活、nft 表补载、策略组出口复原、出口健康、`/tmp` 水位；每轮收尾原子写 `$RUNTIME_DIR/guardian.state`（tmpfs，多行 key=value） | cron `*/5 * * * *`（试跑加 `--dry-run`，`--status` 只读体检） |
 | `traffic-stats.sh` | 流量归因：采样 mihomo `/connections`，按「命中的策略组 + 域名」累计字节（nlbwmon 只按设备记，回答不了「机场流量被谁吃了」） | cron `* * * * *`（`--report` 看当日按组/按域名的累计；`--summary` 跨天按「机场出口 / 直连 / 兜底」分账，再给按组合计与域名 top20） |
 | `bulk-guard.sh` | 大流量组守卫：按**真实吞吐**决定走公共池还是机场；慢时先在公共池内按吞吐缓存换节点（mihomo 的 `url-test`/`fallback` 只测首包，不测带宽） | cron `*/3 * * * *`（`--status` 看当前判定，`--dry-run` 只报告） |
 | `recover-now.sh` | 离线恢复：DNS 解析全失败 / 代理离线 / 「连上 WiFi 但没网」 | 人工，或 Windows 侧推过去跑 |
 | `rc.local` | 开机自启**模板**：建 tmpfs 运行时目录、兜底重建 `/var`、按需加载 nft 表 | 覆盖 `/etc/rc.local` |
 | `post-sc-update.sh` | ShellCrash 官方脚本更新后，把本地补丁恢复回来 + 补 cron + 启动 + 验收 | 每次更新完跑一次 |
 | `setup-zram.sh` | 低内存设备的压缩 swap：装 `kmod-zram`/`zram-swap`、把大小与压缩算法写进 uci、调 `vm.swappiness`，用 CPU 换内存，避免瞬时峰值被 OOM killer 杀核心 | 一次性；换固件后重跑（`--status` 只报告不改） |
+| `ops-status.sh` | **只读**健康快照：把守护/守卫/流量的日志、锁、状态文件与 `/proc`、`df` 拼成 schema 固定的 JSON（`openwrt-ops-status/1`），并把 `AX3000TOpenwrt` 的三个状态口并进 `cross_repo` 段，给控制台和运维工具消费；`--self-check` 出人读自检 | 随时；`sh ops-status.sh --self-check`，控制台侧 `sh ops-status.sh --json` |
 
-设计原则（七个脚本一致）：
+设计原则（八个脚本一致）：
 
 1. **只检测 + 最小化修复**，绝不删防火墙链、绝不重启路由器、绝不改订阅；
 2. 每种修复都**幂等**，跑第二遍不会把设备搞坏；
@@ -114,6 +115,11 @@ scp openwrt/rc.local root@<路由器>:/etc/rc.local
 # 4) 低内存设备（≤256MB）额外跑一次：启用 zram 压缩 swap（幂等，可重复跑）
 scp openwrt/setup-zram.sh root@<路由器>:/etc/openwrt-ops/setup-zram.sh
 ssh root@<路由器> 'sh /etc/openwrt-ops/setup-zram.sh'   # 先看状态加 --status
+
+# 5) 只读健康快照（控制台 / 运维工具消费，不挂 cron、不取锁、不写设备状态）
+scp openwrt/ops-status.sh root@<路由器>:/etc/openwrt-ops/ops-status.sh
+ssh root@<路由器> 'sh /etc/openwrt-ops/ops-status.sh --self-check'   # 人读自检
+ssh root@<路由器> 'sh /etc/openwrt-ops/ops-status.sh --json'         # 机器读快照
 ```
 
 > `bulk-guard.sh` 要生效，还需要两件设备侧的事：`device.conf` 里填

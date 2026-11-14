@@ -48,6 +48,7 @@
 | `CLEAN_NODE` / `CL_CANDIDATES` | 出口组里的节点 | 守护**跳过**出口组复原 |
 | `NFT_DIR` | nft 表的部署目录 | 用默认 `/etc` |
 | `ROUTER_HEALTH_DIR` | 自建健康检查目录 | 开机自检那步被跳过 |
+| `GUARDIAN_STATE` / `DEST_GUARD_STATE` / `HEALTH_JSON` / `CROSS_STATE_STALE_SEC` | 机器可读状态口的位置与陈旧阈值（**不含凭据**，值是路径与秒数） | 用默认 `$RUNTIME_DIR/ops-guardian.state`（留空则按 `ops-guardian.state` → `guardian.state` 探测）/ `$RUNTIME_DIR/dest-guard.state` / `/tmp/router-health/health.json` / `1800` |
 
 **读取顺序**：环境变量 → `device.conf` → 占位符默认值。
 配置文件路径用 `DEVICE_CONF` 指定，默认找脚本同目录的 `conf/device.conf`。

@@ -9,6 +9,63 @@
 
 ## [未发布]
 
+### 守护写机器可读状态 + 跨仓三状态口对接 + 收 fork（2026-11-14，第二轮）
+
+- `openwrt/guardian.sh`：新增 `--status` 只读体检（各组当前出口与生效出口、内存、
+  `/tmp` 水位、nft 三表、实例锁、上一轮状态），**不取实例锁、不写日志与状态文件**，
+  可与 cron 里的守护同分钟执行；每轮收尾原子写 `$RUNTIME_DIR/ops-guardian.state`
+  （tmpfs，多行 `key=value`，键名与 `AX3000TOpenwrt` 的 `guardian.state` 完全对齐、
+  **文件名分开** —— 两版同装时同名文件会被后写者覆盖，见 P57），
+  出口快照取自本轮已读到的值，不再额外打控制 API；新增 `FIX` / `ERROR` / `WARN` /
+  `DRY-RUN` 四类计数（干跑只涨 `wouldfix`）。
+- `openwrt/guardian.sh`：`grp()` 从「`grep -oE` + `head` + `sed`」三个进程压成一次
+  `awk`（共享块 `api-field`），一轮 8–10 次调用等于省 16–20 个 fork；
+  nft 表名变量加引号，避免配置里的 `*` / `?` 被 shell 当 glob 展开成文件名（P56）；
+  `--help` 改用哨兵 `awk`，不再写死行号。
+- `openwrt/bulk-guard.sh`：`grp()` / `grp_fixed()` 同步换成共享块 `api-field`，
+  每轮省 4–8 个 fork。
+- `openwrt/ops-status.sh`：新增 `cross_repo` 顶层段，把 `AX3000TOpenwrt` 的三个机器
+  可读状态口并进同一份快照（`guardian.state` / `dest-guard.state` 转成对象，
+  `health.json` 原样内嵌），每个口都带 `present` 与 `age_s`；`--self-check` 增
+  「跨仓状态口」段，超 `CROSS_STATE_STALE_SEC`（默认 1800 秒）报「陈旧」、文件不存在
+  报「缺失」，读不到一律 `null` / `present:false`（P54）。
+- `openwrt/ops-status.sh`：`TMPFS_WARN_PCT` / `MEM_LOW_MB` 默认值与 `guardian.sh`
+  同源（`85` / `40` → `80` / `30`），消除「自检 `[ok]` 但守护已在告警」（P55）；
+  `bulk_guard.state` 的四个键从 4 次 `sed | head`（8 个 fork）改为一次 `read` 循环。
+- `openwrt/guardian.sh` / `openwrt/ops-status.sh`：守护状态文件默认路径改为
+  `$RUNTIME_DIR/ops-guardian.state`，`ops-status.sh` 按 `ops-guardian.state` →
+  `guardian.state` 顺序探测，两版守护同装时不再互相覆盖（P57）。
+- `docs/PITFALLS.md` 新增 P57；`docs/ARCHITECTURE.md`、`docs/TOOLS.md`、
+  `docs/SECRETS.md`、`docs/TROUBLESHOOTING.md`、`openwrt/conf/device.conf.example`
+  同步状态文件路径与探测顺序。
+- 门禁：`tools/check-shell-shared-blocks.py` 未改动，块数自动从 5 个变 6 个
+  （新增 `api-field` 两份），`[shared] OK 6 个块 / 3 个脚本，全部一致`。
+- 文档：`docs/PITFALLS.md` 增 P54–P56（P50 的块数刷新）；`docs/ARCHITECTURE.md`
+  §3.5 / §4.1 / §4.2 / §4.10、`docs/TROUBLESHOOTING.md` §9、`docs/TOOLS.md`、
+  `openwrt/README.md`、`openwrt/conf/device.conf.example` 同步。
+
+### 运维脚本工程化：共享块门禁 + 只读快照 `ops-status.sh` + 修六类缺陷（2026-11-14）
+
+- 新增 `openwrt/ops-status.sh`（**只读**）：把守护 / 大流量守卫 / 流量归因的日志、实例锁、
+  状态文件与 `/proc`、`df` 拼成 schema 固定的 JSON（`openwrt-ops-status/1`），供控制台与
+  运维工具消费；`--self-check` 出人读自检（配置解析 / 依赖命令 / 目录可写 / 日志水位 /
+  内存与 `/tmp` 水位）。不取实例锁、不写设备状态，secret 只报「有 / 无」。
+- 新增 `tools/check-shell-shared-blocks.py` + CI 步骤：`enc()` / `json_esc()` / `put()` /
+  `log_trim` 与 secret 读取在 guardian / bulk-guard / traffic-stats 里各有一份副本，
+  用 `# >>> shared:<id> >>>` 标记块逐字比对，防「改一处漏两处」。
+- 修漏洞：`guardian.sh` 的 `/tmp` 清理白名单（`/tmp/../x` 能穿越、`/tmp/` 能删空整个 tmpfs）、
+  `setup-zram.sh` 把 `$SWAPPINESS` 拼进 `sh -c`（去注入面）、`post-sc-update.sh` 端口就绪
+  前缀匹配（789 命中 7892）。
+- 修并发：`bulk-guard.sh` 日志截尾在锁外用固定名 `$LOG.tmp`、`speed_set` 用 `$SPEED.tmp`、
+  `recover-now.sh` 用 `$FIP.tmp` —— 全部改带 `$$`。
+- 降内存 / 提速：`guardian.sh` 两次 `df -k /tmp` 合成一次；`traffic-stats.sh` 每轮 3 个
+  `date` 子进程降到 2 个、31 天清理从每分钟改为「攒批落盘时」、`ls | grep` 与
+  `cat *.tsv | awk` 管道合并；`rc.local` 开机去掉一次重复 netstat。
+- 修设备值外泄：`traffic-stats.sh --summary` 原来把真实策略组名当默认值写死在源码里，
+  改为空默认 + 未配置时只报总量。
+- 文档：`docs/PITFALLS.md` 增 P49–P53；`docs/TOOLS.md`、`openwrt/README.md`（七 → 八）、
+  `openwrt/conf/device.conf.example` 同步。
+
 ### 设备包全量升级：44 个包升到 25.12.6 最新，无 kmod 变动（2026-11-13）
 
 - 设备（OpenWrt 25.12.6 / r33311-981c978eff / 内核 6.12.112 / aarch64_cortex-a53）

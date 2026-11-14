@@ -168,6 +168,8 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | `BULK_STATE` / `BULK_SPEED_STATE` / `BULK_TRIED` / `BULK_LOCK` / `BULK_LOG` | — | ✅ | — | — | — | — | 用默认 `$RUNTIME_DIR` 下的文件 |
 | `STATS_FLUSH_MIN` / `STATS_AIRPORT_GROUPS` / `STATS_DIRECT_GROUPS` | — | — | ✅ | — | — | — | 用内置默认值（10 分钟攒批 / 内置分账正则，组名换了才需覆盖） |
 | `GUARDIAN_LOG` | ✅ | — | — | — | — | — | 用默认 `$RUNTIME_DIR/guardian.log` |
+| `GUARDIAN_STATE` | ✅ | — | — | — | — | — | 用默认 `$RUNTIME_DIR/ops-guardian.state`（**写**；`ops-status.sh` 按 `ops-guardian.state` → `guardian.state` 探测读，两版同装不互相覆盖） |
+| `DEST_GUARD_STATE` / `HEALTH_JSON` / `CROSS_STATE_STALE_SEC` | — | — | — | — | — | — | 只有 `ops-status.sh` 读（见下） |
 | `RECOVER_LOG` | — | — | — | ✅ | — | — | 用默认 `/root/recover-last.log` |
 | `POST_SC_LOG` | — | — | — | — | — | ✅ | 用默认 `/root/post-sc-update.log` |
 | `ROUTER_HEALTH_DIR` | — | — | — | — | ✅ | — | 用默认 `/etc/router-health` |
@@ -183,6 +185,10 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | cron 行模板（`GUARDIAN_CRON_LINE` / `CRON_WD_LINE` / `CRON_SAVE_LINE`） / `RESTART_CORE` | — | — | — | — | — | ✅ | 用默认值 |
 | 探测地址与阈值（`PROBE_URL` 等） | ✅ | — | — | — | — | — | 用脚本内置默认值 |
 | 连通性测试地址（`DIRECT_TEST_HOST` / `PROXY_TEST_URL` / `PROXY_TEST_URL2`） | — | — | — | ✅ | — | ✅ | 用默认 `www.baidu.com` / 两个公开站点 |
+
+> `ops-status.sh` 只读，所以不占这张表的列：它额外读 `GUARDIAN_STATE` /
+> `DEST_GUARD_STATE` / `HEALTH_JSON` / `CROSS_STATE_STALE_SEC` 四个键，
+> 只影响快照内容，不影响任何设备行为（见 §4.10）。
 
 > **`NFT_TABLES` 的三个默认值不一样**，这不是笔误，是三张表各自的语义不同：
 > - `guardian.sh`：`quicguard googleroute googlecn` —— 守护要**补载**的表；
@@ -237,6 +243,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | 删 `/tmp` 临时大文件 | ✅ §6 | — | — | ❌ | ❌ | ❌ |
 | 动网络接口（`ifup`） | ❌ | — | — | ✅ §4.1 | ❌ | ❌ |
 | 写日志 | ✅ | ✅ | — | ✅ | ✅（syslog） | ✅ |
+| **写机器可读状态**（tmpfs，每轮原子覆盖） | ✅ 收尾写 `$RUNTIME_DIR/ops-guardian.state` | — | — | — | — | — |
 | 写流量统计与采样状态（`$CRASHDIR/stats/` 与 `$RUNTIME_DIR`） | — | — | ✅ | — | — | — |
 | **重启设备** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
 | **改订阅 / 规则源文件** | ❌ | ❌ | — | ❌ | ❌ | ❌ |
@@ -259,10 +266,16 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 | 4 nft 表补载 | `nft list table inet <表>` 在不在？ | 缺失且 `$NFT_DIR/<表>.nft` 在 → `nft -f` 加载 |
 | 5 静默回退自愈 | 运行态 `config.yaml` 里还有没有兜底组？ | 没有（说明被回退成基础配置了）→ 限频窗口外跑 `/bin/ash $TASK_SH hotupdate` 重生成 |
 | 6 探活与水位 | 出口地区码（每小时一次）、`MemAvailable`、`/tmp` 占用 | `/tmp` ≥ `TMPFS_WARN_PCT` → `rm -rf` 白名单里的临时大文件 |
-| 收尾 | legacy 看门狗 cron 行还在不在？ | 不在 → 追加一行并 `crontab $CRON_FILE` |
+| 收尾 | legacy 看门狗 cron 行还在不在？ | 不在 → 追加一行并 `crontab $CRON_FILE`；随后原子写 `$GUARDIAN_STATE`（`ts` / `mode` / 四类动作计数 / 内存与 `/tmp` 水位 / 三个出口快照），tmpfs 上的小文件，不占闪存写入 |
 
 **干跑**：`--dry-run`（或 `-n`）下，上述所有「切组 / 拉起 / 重载 / 改 crontab / 删文件」
-一律不执行，只在日志里写「本应……」。**上设备前先干跑。**
+一律不执行，只在日志里写「本应……」，并累加 `wouldfix` 计数。**上设备前先干跑。**
+
+**只读体检**：`--status` 打完「配置 / 核心 / 各组当前出口与生效出口 / 内存 / `/tmp` /
+nft 三表 / 实例锁 / 上一轮 `guardian.state` / 日志字节」就退出，**不取实例锁、不写日志、
+不写状态文件**——所以可以在守护正在跑的同一分钟里手工执行，不会把那一轮挤掉。
+判断「守护到底动没动手」看 `guardian.state` 的 `fixes` / `errors` / `warns`，
+不用再 `tail` 日志拼。
 
 ### 4.3 `recover-now.sh` —— 一次性救回链路
 
@@ -417,6 +430,57 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 所以 §2.3 的「六个 shell 脚本读 device.conf」不含它）；**绝不对已在 swap 的设备做 `swapoff`**
 （那会把已换出的页全拉回内存，瞬间 OOM）。为什么加它、实测数据见
 [PITFALLS.md](PITFALLS.md) P47。
+
+---
+
+### 4.10 `ops-status.sh` —— 只读健康快照（对外接口）
+
+前九节都是「脚本怎么改设备」；这一节反过来，是**设备怎么把状态说出去**。
+`ops-status.sh` 不写任何东西（不取实例锁、不碰 nft / crontab / 进程、不写 tmpfs），
+只按 §3.1 的查找顺序读 `device.conf` 拿到**各脚本真正在用的路径**，再把状态拼成 JSON：
+
+```sh
+sh ops-status.sh                # 默认就是 JSON
+sh ops-status.sh --json         # 同上
+sh ops-status.sh --self-check   # 人读自检（配置 / 依赖 / 权限 / 水位），结论行只用 ASCII（P44）
+```
+
+退出码：`0` 正常、`1` 自检发现问题、`2` 参数错误。
+
+**契约（`schema = openwrt-ops-status/1`）**：只增字段、不改语义；消费方必须容忍未知键与
+`null`（表示「测不到」，不是「等于 0」）。
+
+| 顶层键 | 内容 | 数据来源 |
+|---|---|---|
+| `schema` / `ts` / `ts_human` / `host` / `readonly` | 版本、时间、主机名、恒为 `true` | `date`、`uname -n` |
+| `load` / `uptime_s` | 1/5/15 分钟负载、开机秒数 | `/proc/loadavg`、`/proc/uptime` |
+| `mem` | `total_mb` / `avail_mb` / `swap_total_mb` / `swap_free_mb` / `effective_mb`（= `MemAvailable + SwapFree/2`，P47） | `/proc/meminfo` |
+| `tmpfs` | `path` / `used_kb` / `total_kb` / `pct` / `warn_pct` | 一次 `df -k /tmp` |
+| `guardian` | 日志路径与字节数、`lock{held,pid,age_s}`、`alive_age_s`、`last_event`、`last_alert` | `$GUARDIAN_LOG`、`guardian.lock/{pid,ts}`、`.proxy_alive` |
+| `bulk_guard` | 日志、锁、`state{last_probe,cooldown_until,last_moving,fails}`、`speed_entries`、`tried_nodes` | `$BULK_LOG`、`$BULK_STATE`、`$BULK_SPEED_STATE`、`$BULK_TRIED` |
+| `traffic` | `stats_dir` / `days` / `latest_day` / `buffer_bytes` / `flush_min` | `$STATS_DIR/*.tsv`、`$BUF` |
+| `router_health` | `dir` / `log` / `age_s` / `last_line`（`AX3000TOpenwrt` 侧 `health-snapshot.sh` 写的单行 key=value） | `$ROUTER_HEALTH_DIR` |
+| `cross_repo` | `stale_after_s` + 三个状态口，每个 `{path, present, age_s}`：两个 `.state` 另带 `fields`（KV 转对象），`health.json` 另带 `doc`（原样内嵌的 JSON） | `$GUARDIAN_STATE`、`$DEST_GUARD_STATE`、`$HEALTH_JSON` |
+
+`cross_repo` 是**跨仓联动口**：`AX3000TOpenwrt` 侧已经产出三个机器可读状态
+（`guardian.state` / `dest-guard.state` 是多行 `key=value`，`health.json` 是单行 JSON），
+本脚本把它们并进同一份快照，控制台一次调用就能同时看到「本仓三个脚本」和「路由侧健康」，
+不用分两次抓、也不用在控制台里实现两套解析。`health.json` 是**原样内嵌**（先 `tr -d '\r\n'`
+再判首尾 `{}`），这样它的键名演进不需要跟着改本脚本；代价是生产方写出非法 JSON 时这一整份
+快照会不可解析——已在读取时做首尾粗检，读不到就出 `null`。
+
+`TMPFS_WARN_PCT` / `MEM_LOW_MB` 的默认值与 `guardian.sh` **同源**（`80` / `30`）：
+同名的键在两个脚本里有两种含义，会出现「自检 `[ok]` 但守护已经在告警」（P55）。
+
+四条硬约束：
+
+1. **凭据面**：`secret` 只报「有 / 无」，任何情况下不打印内容；
+2. **不干扰守护**：不建、不删、不续 `guardian.lock` / `bulk_guard.lock`，因此可以和 cron 同时跑；
+3. **测不到 ≠ 0**：读不到 `/proc/meminfo` 时 `mem.*` 出 `null` 并让自检报 `[warn]`，
+   而不是报「宽松内存 0MB」把人骗去清缓存；
+4. **状态口要带年龄**：`cross_repo` 每个口都出 `age_s`，`--self-check` 超过
+   `CROSS_STATE_STALE_SEC`（默认 1800 秒 = 守护连丢 6 轮）报 `[warn] 状态口陈旧`，
+   文件不存在报 `[warn] 状态口缺失`——**不把三小时前的快照当现状**（P54）。
 
 ---
 

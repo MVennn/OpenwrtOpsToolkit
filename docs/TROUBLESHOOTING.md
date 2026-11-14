@@ -484,14 +484,33 @@
 
 ### 排查步骤
 
-1. **先看守护到底做了什么**（`FIX` / `ALERT` / `ERROR` 行）：
+1. **一条命令看现状**（只读，不取锁、不写日志，可以在守护跑的同一分钟执行）：
+
+   ```sh
+   sh /etc/ShellCrash/guardian.sh --status
+   ```
+
+   输出里直接给：配置来自哪个文件、核心在不在、四个组**当前选的**和**实际生效的**出口、
+   内存与 `/tmp` 水位（带阈值）、nft 三表在位情况、实例锁有没有被占、上一轮的
+   `guardian.state` 全文。比翻日志快，也不会把那一轮守护挤掉。
+
+2. **看守护这几轮到底动了什么**：`guardian.state` 里有 `fixes` / `errors` / `warns` /
+   `wouldfix` 四个计数（干跑只涨 `wouldfix`），`ts` 是这一轮的时间：
+
+   ```sh
+   cat /tmp/ShellCrash/ops-guardian.state   # 两版同装时先看这个
+   cat /tmp/ShellCrash/guardian.state       # AX3000TOpenwrt 版守护写的
+   ```
+
+   `ts` 比现在还旧 `1800` 秒以上（守护 cron 是 `*/5`，等于连丢 6 轮）→ 先查 cron 和
+   日志，别拿这份状态当现状（P54）。要看更细的动作就翻日志：
 
    ```sh
    grep -E 'FIX|ALERT|ERROR|WARN' "$GUARDIAN_LOG" | tail -30
    logread | grep guardian
    ```
 
-2. **不确定它会不会动，就先干跑**：
+3. **不确定它会不会动，就先干跑**：
 
    ```sh
    sh openwrt/guardian.sh --dry-run
@@ -499,7 +518,7 @@
 
    干跑只检测只报告，切组 / 拉起 / 重载 / 改 crontab / 删文件**一律不执行**。
 
-3. **「该动却没动」→ 查配置键是否配全**：
+4. **「该动却没动」→ 查配置键是否配全**：
 
    ```sh
    sh -n "$DEVICE_CONF"                       # 语法对不对
@@ -509,7 +528,7 @@
    任何一项为空 → 对应动作**直接跳过**（这是有意设计，见 P18）。
    另外每项动作往往要**好几个键同时非空**才生效。
 
-4. **「不该动却动了」→ 查坏节点通配是不是太宽**：
+5. **「不该动却动了」→ 查坏节点通配是不是太宽**：
 
    ```sh
    grep -E '^(AI_BAD_NODES|POOL_BLOCKED_NODES)=' "$DEVICE_CONF"
@@ -517,11 +536,11 @@
 
    `|` 分隔的 shell 通配，`*` 匹配任意长。`*-备用*` 这种很宽。
 
-5. **「核心没了它不拉」→ 这是设计**：最近 `ALIVE_STALE_SEC`（默认 1800 秒）
+6. **「核心没了它不拉」→ 这是设计**：最近 `ALIVE_STALE_SEC`（默认 1800 秒）
    没有存活记录 + 没有 pid 文件 → 判定为人为停止，刻意不拉。
    要它拉就把 `ALIVE_STALE_SEC` 调小，或手动 `sh /etc/ShellCrash/start.sh start`。
 
-6. **维护前后记得停/挂守护**：
+7. **维护前后记得停/挂守护**：
 
    ```sh
    sed -i '/guardian/d' /etc/crontabs/root && /etc/init.d/cron restart   # 停
