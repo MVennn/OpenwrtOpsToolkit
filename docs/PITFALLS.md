@@ -8,7 +8,7 @@
 
 相关：[TROUBLESHOOTING.md](TROUBLESHOOTING.md)（按现象排的完整排查流程）、
 [ARCHITECTURE.md](ARCHITECTURE.md)（机制）、
-[`memories/`](../memories/MEMORY.md)（记忆原文）。
+旧 `memories/` 目录已退役删除，记忆正本已迁入 dsh-mnemon（Documents「记忆索引」），不再有仓内记忆原文。
 
 ---
 
@@ -718,25 +718,3 @@
 - **现象**：`NFT_TABLES` 里写了含 `*` / `?` / `[` 的表名（清单型变量都可能），
   `$NFT list table inet $t` 里的 `$t` 被 shell 当通配符展开成当前目录下的文件名，
   `nft` 收到完全无关的表名 → 判「表缺失」→ 每轮都去补载。
-- **根因**：裸变量展开同时做分词与路径名展开（glob），值是「配置里来的」也不例外。
-- **解法**：`inet "$t"`；`for x in $LIST` 只让 `$LIST` 分词，循环体里 `$x` 一律加引号。
-- **下次怎么避**：凡是值来自配置文件的变量，出现在命令参数位置一律加双引号；
-  唯一允许裸写的位置是 `for ... in $LIST` 的分词点。
-- **验证**：fixture 里 `NFT_TABLES="qui*"` 且当前目录有 `quicguard.nft`，
-  加引号后 `--status` 显示查的是字面表名 `qui*`，不再报「缺失且 .nft 不存在」。
-
-### P57 两个仓的守护写同一个状态文件名，后写者覆盖前写者 【通用】
-
-- **现象**：设备上同时装 `AX3000TOpenwrt` 的 `guardian` 与本仓 `openwrt/guardian.sh` 时，
-  `ops-status.sh` 报的 `fixes` / `errors` / `warns` 每五分钟在两个值之间来回跳，
-  `age_s` 永远很小；查日志才发现两条 cron 都在跑。
-- **根因**：两版都把「每轮原子写状态」落在 `$RUNTIME_DIR/guardian.state`。文件名相同，
-  后跑的覆盖先跑的；下游把「刚被另一版覆盖」误读成「守护很健康、刚更新过」。
-- **解法**：**文件名分开**（本仓写 `ops-guardian.state`，AX 版保持 `guardian.state`），
-  消费方 `ops-status.sh` 按 `ops-guardian.state` → `guardian.state` 顺序探测；
-  键名仍完全对齐，消费方不必知道是哪一版写的。
-- **下次怎么避**：跨仓共享的是**格式与键名，不是路径**。两个实现要共存时，
-  先定「谁是这段路径的唯一写者」，另一个必须换名。
-- **验证**：本机 `printf 'ts=%s\nstate=probe\n' "$(date +%s)" > /tmp/ShellCrash/ops-guardian.state`
-  后 `ops-status.sh --json` 的 `cross_repo.guardian_state.path` 指向 `ops-guardian.state`
-  （`fields` 里是刚写的键）；删掉文件后回退到 `guardian.state`，两条路径都实测成立。
