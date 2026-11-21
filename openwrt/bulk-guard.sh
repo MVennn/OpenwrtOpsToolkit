@@ -551,8 +551,11 @@ acquire_lock() {
   if [ -d "$LOCK" ]; then
     _lp=$(cat "$LOCK/pid" 2>/dev/null)
     _lt=$(cat "$LOCK/ts" 2>/dev/null)
+    # ts 损坏（空/非数字）时不能参与算术：否则 busybox sh 把脏串按 0 或报错，
+    # 过期判断失真。照 guardian.sh 的 case 校验，脏值归 0 = 视为过期可回收。
+    case "$_lt" in ''|*[!0-9]*) _lt=0 ;; esac
     if [ -n "$_lp" ] && kill -0 "$_lp" 2>/dev/null \
-       && [ -n "$_lt" ] && [ $((NOW_TS - _lt)) -lt 600 ]; then
+       && [ $((NOW_TS - _lt)) -lt 600 ]; then
       exit 0
     fi
     rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null
@@ -564,10 +567,8 @@ acquire_lock() {
   trap 'rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null; rmdir "$LOCK" 2>/dev/null; rm -f "$RUNTIME_DIR"/.bulk_guard_snap.$$.* "$RUNTIME_DIR"/.bulk_guard_cands.$$ 2>/dev/null' EXIT INT TERM HUP
 }
 
-# 日志自限容。原来这里自带一份内联实现且临时名固定为 "$LOG.tmp"：本行在
-# acquire_lock 之前执行，锁过期叠轮时两个实例会互踩同一个临时文件。
-# 统一走 shared:log-trim（临时名带 $$），行为不变。
-log_trim "$LOG"
+# 日志自限容统一走 shared:log-trim（临时名带 $$）。必须在 --status 判断之后
+# 执行：--status 承诺纯只读，提前跑 log_trim 会截断日志文件，留下副作用。
 
 if [ -z "$GROUP" ] || [ -z "$PUBLIC" ] || [ -z "$AIRPORT" ]; then
   log "WARN: 未配置 BULK_GROUP / BULK_PUBLIC / BULK_AIRPORT，跳过"
@@ -614,6 +615,8 @@ if [ "$MODE" = "--status" ]; then
   exit 0
 fi
 
+# --status 在上面已退出，日志自限容只在会真正运行的路径上执行（纯只读保证）。
+log_trim "$LOG"
 acquire_lock
 
 # 两次下载之间隔了 IDLE_SWITCH 以上，就算新会话：清空「已试」。

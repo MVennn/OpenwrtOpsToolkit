@@ -80,9 +80,37 @@ STATE="$TMPDIR/traffic-stats.state"
 # 攒到 STATS_FLUSH_MIN 分钟才聚合进 $STATS_DIR 的当日 tsv —— 闪存降频用。
 BUF="$TMPDIR/traffic-stats.buf"
 API="http://$CTRL_HOST:$CTRL_PORT/connections"
+# 中间产物全部带 $$：cron 每分钟一次、长请求最多 8s，理论上会叠轮；固定名
+# （STATE.new/.delta、today.new）会让两轮互踩半截文件，与 sample/rows 同理。
+STATE_NEW="$STATE.new.$$"
+STATE_DELTA="$STATE.delta.$$"
+LOCK="$TMPDIR/traffic-stats.lock"
 
 mkdir -p "$STATS_DIR" "$TMPDIR" 2>/dev/null
-trap 'rm -f "$TMPDIR"/traffic-stats.*.$$ "$STATE.new" "$STATE.delta"' EXIT INT TERM HUP
+trap 'rm -f "$TMPDIR"/traffic-stats.*.$$ "$STATE_NEW" "$STATE_DELTA" "$STATS_DIR"/*.tsv.new.$$' EXIT INT TERM HUP
+
+# 实例锁：cron 每分钟一次，curl 最长 8s，叠轮会让两次采样同时读写同一个
+# state / buffer —— 差值算重或状态回退。锁形状照 bulk-guard.sh / guardian.sh：
+# mkdir 原子建锁 + pid/ts + 过期回收 + trap 清理。注意含清锁的 trap 只在
+# 抢到锁之后安装：抢占失败退出的实例若也带这个 trap，会误删在跑实例的锁。
+acquire_lock() {
+  _lk_now=$(date +%s)
+  if [ -d "$LOCK" ]; then
+    _lk_pid=$(cat "$LOCK/pid" 2>/dev/null)
+    _lk_ts=$(cat "$LOCK/ts" 2>/dev/null)
+    case "$_lk_ts" in ''|*[!0-9]*) _lk_ts=0 ;; esac
+    if [ -n "$_lk_pid" ] && kill -0 "$_lk_pid" 2>/dev/null \
+       && [ $((_lk_now - _lk_ts)) -lt 600 ]; then
+      exit 0
+    fi
+    rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null
+    rmdir "$LOCK" 2>/dev/null
+  fi
+  mkdir "$LOCK" 2>/dev/null || exit 0
+  echo $$ > "$LOCK/pid"
+  echo "$_lk_now" > "$LOCK/ts"
+  trap 'rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null; rmdir "$LOCK" 2>/dev/null; rm -f "$TMPDIR"/traffic-stats.*.$$ "$STATE_NEW" "$STATE_DELTA" "$STATS_DIR"/*.tsv.new.$$' EXIT INT TERM HUP
+}
 
 # ---------------------------------------------------------------- 报表模式
 if [ "$1" = "--report" ]; then
@@ -146,6 +174,9 @@ if [ "$1" = "--summary" ]; then
 	exit 0
 fi
 
+# --report / --summary 是只读报表，上面已 exit，不占锁；只有采样路径需要串行。
+acquire_lock
+
 # ---------------------------------------------------------------- 采样
 # secret 与 guardian.sh / bulk-guard.sh 同源：运行时从 ShellCrash.cfg 现读。
 # 读不到时按无鉴权请求（核心没开鉴权时这本来就是对的；开了鉴权则本轮 401 无数据）。
@@ -204,7 +235,7 @@ END {
 # 首见连接只记「种子」不产差值：/connections 的字节是连接累计值，若按
 # 「新值 − 0」计，核心重启 / 状态丢失后会把连接建立以来的字节一次性计入。
 [ -f "$STATE" ] || : >"$STATE"
-awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="$STATE.new" '
+awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE_DELTA" -v newstate="$STATE_NEW" '
 	FILENAME == oldfile { lup[$1] = $4; ldn[$1] = $5; next }	# 旧状态：id host grp up dn
 	{
 		id = $1; host = $2; grp = $3; up = $4 + 0; dn = $5 + 0
@@ -226,15 +257,15 @@ awk -F'\t' -v OFS='\t' -v oldfile="$STATE" -v delta="$STATE.delta" -v newstate="
 NOW_TS=$(date +%s)
 TODAY=$(date +%Y-%m-%d)
 BUF_OK=1
-if [ -s "$STATE.delta" ]; then
-	cat "$STATE.delta" >>"$BUF.$TODAY" 2>/dev/null || BUF_OK=0
+if [ -s "$STATE_DELTA" ]; then
+	cat "$STATE_DELTA" >>"$BUF.$TODAY" 2>/dev/null || BUF_OK=0
 	# 落盘节拍的锚点在首个差值进缓冲时起算（只写一次；flush 后由落盘段刷新）
 	[ -f "$BUF.ts" ] || echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
 fi
 # 状态在缓冲写成功后才推进：/tmp 写失败（tmpfs 满）时本轮差值不丢，
 # 下一轮按旧状态重新算出同样的差值（与旧版 awk >delta 失败即中断等价）；
 # 本轮没有差值时状态照常推进（连接集合每轮都可能变）。
-[ "$BUF_OK" = "1" ] && [ -s "$STATE.new" ] && mv -f "$STATE.new" "$STATE"
+[ "$BUF_OK" = "1" ] && [ -s "$STATE_NEW" ] && mv -f "$STATE_NEW" "$STATE"
 
 # ---- 落盘：缓冲攒够 STATS_FLUSH_MIN 分钟才合并进 $STATS_DIR 的当日 tsv ----
 # 闪存账：旧版只要有增量就每分钟全量重写当日文件（一天最多 1440 次读改写）；
@@ -271,7 +302,7 @@ for b in "$BUF".*; do
 					split(k, p, SUBSEP)
 					print p[1], p[2], u[k], d[k]
 				}
-			}' "$today" "$b" >"$today.new" && mv -f "$today.new" "$today"
+			}' "$today" "$b" >"$today.new.$$" && mv -f "$today.new.$$" "$today"
 	else
 		# 当日首个 flush：直接聚合缓冲本身（不给「当日文件是原始行」留窗口，
 		# 保持旧版「tsv 任何时刻都是聚合后的」这一形态）
@@ -282,7 +313,7 @@ for b in "$BUF".*; do
 					split(k, p, SUBSEP)
 					print p[1], p[2], u[k], d[k]
 				}
-			}' "$b" >"$today.new" && mv -f "$today.new" "$today"
+			}' "$b" >"$today.new.$$" && mv -f "$today.new.$$" "$today"
 	fi
 	rm -f "$b" 2>/dev/null
 	FLUSHED=1
