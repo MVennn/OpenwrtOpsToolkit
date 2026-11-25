@@ -65,35 +65,58 @@ def stream_logs():
     s.close()
 
 
+def current_log_level(default="info"):
+    """读当前日志级别；读不到就回落 default（=旧版硬编码 info 的行为）。"""
+    try:
+        cfg = api("/configs", timeout=10, tries=2)   # 只探一次口径，别为一个读值拖慢工具
+        if isinstance(cfg, dict):
+            lv = cfg.get("log-level") or cfg.get("log_level")
+            if isinstance(lv, str) and lv.strip():
+                return lv.strip()
+    except Exception:
+        pass
+    return default
+
+
+def restore_log_level(level):
+    print(f"恢复日志级别 -> {level}")
+    try:
+        api("/configs", method="PATCH", body=json.dumps({"log-level": level}).encode(),
+            timeout=60, tries=20)
+    except Exception as e:
+        print("恢复日志级别失败:", e)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
     domains = sys.argv[1:] or ["gchat.qpic.cn", "www.baidu.com"]
+    orig_level = current_log_level()
     api("/configs", method="PATCH", body=json.dumps({"log-level": "debug"}).encode(),
         timeout=60, tries=20)
     th = threading.Thread(target=stream_logs, daemon=True)
     th.start()
     time.sleep(1.5)
 
-    for d in domains:
-        url = "https://" + d + "/"
-        for g in [GROUP_PROXY, GROUP_DIRECT]:
-            try:
-                r = api(f"/proxies/{urllib.parse.quote(g)}/delay?timeout=10000&url={urllib.parse.quote(url, safe='')}",
-                        timeout=60, tries=15)
-                print(f"  {g:12s} {url} -> {r}")
-            except Exception as e:
-                print(f"  {g:12s} {url} -> ERR {e}")
-        time.sleep(1.0)
-
-    time.sleep(2)
-    stop.set()
+    # 收尾动作（停日志流 + 恢复日志级别）必须走 finally：Ctrl-C 或中途异常
+    # 都要把级别改回去，否则设备停在 debug 持续写 48MB 的 /tmp（P1-6）。
     try:
-        api("/configs", method="PATCH", body=json.dumps({"log-level": "info"}).encode(),
-            timeout=60, tries=20)
-    except Exception as e:
-        print("恢复日志级别失败:", e)
+        for d in domains:
+            url = "https://" + d + "/"
+            for g in [GROUP_PROXY, GROUP_DIRECT]:
+                try:
+                    r = api(f"/proxies/{urllib.parse.quote(g)}/delay?timeout=10000&url={urllib.parse.quote(url, safe='')}",
+                            timeout=60, tries=15)
+                    print(f"  {g:12s} {url} -> {r}")
+                except Exception as e:
+                    print(f"  {g:12s} {url} -> ERR {e}")
+            time.sleep(1.0)
+
+        time.sleep(2)
+    finally:
+        stop.set()
+        restore_log_level(orig_level)
 
     print("\n=== 与目标域名相关的日志 ===")
     hit = False

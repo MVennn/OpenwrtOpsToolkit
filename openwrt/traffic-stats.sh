@@ -302,7 +302,8 @@ for b in "$BUF".*; do
 					split(k, p, SUBSEP)
 					print p[1], p[2], u[k], d[k]
 				}
-			}' "$today" "$b" >"$today.new.$$" && mv -f "$today.new.$$" "$today"
+			}' "$today" "$b" >"$today.new.$$"
+		_rc=$?
 	else
 		# 当日首个 flush：直接聚合缓冲本身（不给「当日文件是原始行」留窗口，
 		# 保持旧版「tsv 任何时刻都是聚合后的」这一形态）
@@ -313,10 +314,20 @@ for b in "$BUF".*; do
 					split(k, p, SUBSEP)
 					print p[1], p[2], u[k], d[k]
 				}
-			}' "$b" >"$today.new.$$" && mv -f "$today.new.$$" "$today"
+			}' "$b" >"$today.new.$$"
+		_rc=$?
 	fi
-	rm -f "$b" 2>/dev/null
-	FLUSHED=1
+	# 落盘分三级校验：awk 失败、mv 失败都必须保住当日缓冲，两级全过才删缓冲
+	# 并置 FLUSHED=1。原来是一条 && 链加无条件 rm：闪存写满时 awk 或 mv 失败，
+	# 缓冲照样被删、时间戳照样推后，那一批统计静默丢失（P1-3）。
+	if [ "$_rc" -eq 0 ] && mv -f "$today.new.$$" "$today" 2>/dev/null; then
+		rm -f "$b" 2>/dev/null
+		FLUSHED=1
+	else
+		rm -f "$today.new.$$" 2>/dev/null
+		logger -t traffic-stats -p daemon.err "统计落盘失败（awk rc=$_rc, 日期 $d），保留当日缓冲待下轮重试" 2>/dev/null \
+			|| echo "traffic-stats: flush failed (awk rc=$_rc, $d)" >&2
+	fi
 done
 [ "$FLUSHED" = "1" ] && echo "$NOW_TS" >"$BUF.ts" 2>/dev/null
 

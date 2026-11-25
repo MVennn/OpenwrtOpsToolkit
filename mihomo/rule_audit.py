@@ -136,6 +136,10 @@ def in_cn(host):
     return False
 
 # ---------- 分段：按模板顺序，用每段首条规则定位 ----------
+# 未能定位的列表名（.list 为空、或首条规则已被上游剔除）。find_sections 填，
+# 报告里据此告警——这类段以前会让相邻段拿到 end=None（P1-5）。
+unresolved_lists = []
+
 def find_sections():
     starts = []
     cursor = 0
@@ -157,12 +161,20 @@ def find_sections():
         starts.append((name, len(lr), cand))
         if cand is not None:
             cursor = cand + len(lr)
+    # 段起点定位不到时本段无法定位；而「下一段的起点」这时也是 None，
+    # 直接拿它当 end 会让后面的 `int < None` 抛 TypeError 把工具整个打断。
+    # 这里只收已定位的段，end 取「下一个已定位段」的起点（没有则到规则末尾），
+    # 未定位的列表单独记下来在报告里告警。
+    unresolved_lists[:] = [name for name, _ln, s in starts if s is None]
     sections = []
-    for i, (name, ln, s) in enumerate(starts):
-        e = starts[i + 1][2] if i + 1 < len(starts) else len(rules)
+    next_start = len(rules)
+    for i in range(len(starts) - 1, -1, -1):
+        name, ln, s = starts[i]
         if s is None:
             continue
-        sections.append({"name": name, "start": s, "end": e, "list_count": ln})
+        sections.append({"name": name, "start": s, "end": next_start, "list_count": ln})
+        next_start = s
+    sections.reverse()
     if sections and sections[0]["start"] > 0:
         sections.insert(0, {"name": "00_custom (前置自定义规则)", "start": 0, "end": sections[0]["start"], "list_count": sections[0]["start"]})
     return sections
@@ -455,6 +467,9 @@ for s in sections:
     ts = collections.Counter(rules[i]["target"] for i in range(s["start"], s["end"]) if i < len(rules))
     sec_rows.append([s["name"], f'{s["start"]}..{s["end"]-1}', s["end"] - s["start"], s["list_count"], ", ".join(f"{k}:{v}" for k, v in ts.most_common(3))])
 L.append(md_table(["来源", "索引", "生成条数", "上游条数", "目标分布"], sec_rows))
+if unresolved_lists:
+    L.append(f"\n> 警告：以下列表在生成的 config 里定位不到（.list 为空或首条规则已被剔除），"
+             f"对应段落未计入本表：{', '.join(unresolved_lists)}\n")
 
 L.append("\n## 2. 策略组状态\n")
 L.append(md_table(["组", "类型", "当前选择", "实际出口", "链", "候选数"],

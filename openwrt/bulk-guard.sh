@@ -546,25 +546,46 @@ idle_probe() {
   fi
 }
 
-# 同一时间只允许一个实例：整轮最坏要跑两分多钟，3 分钟 cron 可能压边。
+# 同一时间只允许一个实例：整轮最长要跑十分钟以上（池内候选全死时
+# pick_live_node 要扫完整个池、两轮探测、加上慢速处理的等待），3 分钟 cron
+# 必然压边。
+# TTL 必须明显大于最坏一轮，否则第二个实例会把「还在跑」的锁当陈旧没收；
+# 锁目录额外记 owner（写锁进程的 pid），trap 只在 owner 等于自身时才清锁——
+# 否则旧实例结束时会把新实例的锁删掉，互斥从此永久失效（P1-2）。
+LOCK_TTL="${BULK_LOCK_TTL:-1800}"
+release_lock() {
+  _ow=$(cat "$LOCK/owner" 2>/dev/null)
+  [ "$_ow" = "$$" ] || return 0
+  rm -f "$LOCK/pid" "$LOCK/ts" "$LOCK/owner" 2>/dev/null
+  rmdir "$LOCK" 2>/dev/null
+  return 0
+}
 acquire_lock() {
   if [ -d "$LOCK" ]; then
     _lp=$(cat "$LOCK/pid" 2>/dev/null)
     _lt=$(cat "$LOCK/ts" 2>/dev/null)
-    # ts 损坏（空/非数字）时不能参与算术：否则 busybox sh 把脏串按 0 或报错，
-    # 过期判断失真。照 guardian.sh 的 case 校验，脏值归 0 = 视为过期可回收。
+    # ts/pid 损坏（空/非数字）时不能参与算术：否则 busybox sh 把脏串按 0 或报错，
+    # 过期判断失真。脏值归 0/空 = 视为过期可回收。
     case "$_lt" in ''|*[!0-9]*) _lt=0 ;; esac
+    case "$_lp" in ''|*[!0-9]*) _lp="" ;; esac
     if [ -n "$_lp" ] && kill -0 "$_lp" 2>/dev/null \
-       && [ $((NOW_TS - _lt)) -lt 600 ]; then
+       && [ $((NOW_TS - _lt)) -lt "$LOCK_TTL" ]; then
+      log "INFO: 另一实例在跑（pid=$_lp，已 $((NOW_TS - _lt))s，TTL ${LOCK_TTL}s），本轮跳过"
       exit 0
     fi
-    rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null
+    if [ -n "$_lp" ] && kill -0 "$_lp" 2>/dev/null; then
+      log "WARN: 回收陈旧锁（pid=$_lp 持锁 $((NOW_TS - _lt))s，已超 TTL ${LOCK_TTL}s，该轮可能异常拖长）"
+    else
+      log "WARN: 回收陈旧锁（pid=${_lp:-?} 已不存在，ts 距今 $((NOW_TS - _lt))s）"
+    fi
+    rm -f "$LOCK/pid" "$LOCK/ts" "$LOCK/owner" 2>/dev/null
     rmdir "$LOCK" 2>/dev/null
   fi
   mkdir "$LOCK" 2>/dev/null || exit 0
   echo $$ > "$LOCK/pid"
+  echo $$ > "$LOCK/owner"
   echo "$NOW_TS" > "$LOCK/ts"
-  trap 'rm -f "$LOCK/pid" "$LOCK/ts" 2>/dev/null; rmdir "$LOCK" 2>/dev/null; rm -f "$RUNTIME_DIR"/.bulk_guard_snap.$$.* "$RUNTIME_DIR"/.bulk_guard_cands.$$ 2>/dev/null' EXIT INT TERM HUP
+  trap 'release_lock; rm -f "$RUNTIME_DIR"/.bulk_guard_snap.$$.* "$RUNTIME_DIR"/.bulk_guard_cands.$$ 2>/dev/null' EXIT INT TERM HUP
 }
 
 # 日志自限容统一走 shared:log-trim（临时名带 $$）。必须在 --status 判断之后
@@ -582,9 +603,11 @@ if [ -z "$NOW" ]; then
 fi
 
 NOW_TS=$(date +%s)
-CU=$(state_get cooldown_until); CU=${CU:-0}
-LAST=$(state_get last_probe); LAST=${LAST:-0}
-FAILS=$(state_get fails); FAILS=${FAILS:-0}
+# 状态文件可能被写坏（tmpfs 截断、手改），脏值进 $(( )) 在 ash 里是算术语法
+# 错误并终止整轮；非数字一律回落默认值（与 guardian.sh 的 num 守卫同一判据）。
+CU=$(state_get cooldown_until); case "${CU:-}" in ''|*[!0-9]*) CU=0 ;; esac
+LAST=$(state_get last_probe); case "${LAST:-}" in ''|*[!0-9]*) LAST=0 ;; esac
+FAILS=$(state_get fails); case "${FAILS:-}" in ''|*[!0-9]*) FAILS=0 ;; esac
 LAST_MOVING=$(state_get last_moving)
 # 状态缺失/为 0（首次运行、tmpfs 重建）时按「此刻刚活动」算：直接当 0 用会让
 # NOW-LAST_MOVING 恒为整个 epoch（日志里出现「已空闲 29898910 分钟」），

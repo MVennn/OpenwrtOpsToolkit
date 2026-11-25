@@ -93,34 +93,57 @@ def classify(domain, mark):
     return " + ".join(sorted(used)) if used else "未知"
 
 
+def current_log_level(default="info"):
+    """读当前日志级别；读不到就回落 default（=旧版硬编码 info 的行为）。"""
+    try:
+        cfg = api("/configs", timeout=10, tries=2)   # 只探一次口径，别为一个读值拖慢工具
+        if isinstance(cfg, dict):
+            lv = cfg.get("log-level") or cfg.get("log_level")
+            if isinstance(lv, str) and lv.strip():
+                return lv.strip()
+    except Exception:
+        pass
+    return default
+
+
+def restore_log_level(level):
+    print(f"恢复日志级别 -> {level}")
+    try:
+        api("/configs", method="PATCH", body=json.dumps({"log-level": level}).encode(),
+            timeout=60, tries=20)
+    except Exception as e:
+        print("恢复日志级别失败:", e)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
     domains = sys.argv[1:] or DEFAULT_DOMAINS
+    orig_level = current_log_level()
     api("/configs", method="PATCH", body=json.dumps({"log-level": "debug"}).encode(),
         timeout=60, tries=20)
     threading.Thread(target=stream_logs, daemon=True).start()
     time.sleep(1.5)
-    print(f"{'域名':24s} {'DNS 通道':22s} 判定")
-    for d in domains:
-        try:
-            dns_query(d)
-        except Exception as e:
-            print(f"{d:24s} 查询失败 {e}")
-            continue
-        time.sleep(1.2)
-        c = classify(d, None)
-        verdict = "在 cn 规则集 → 直连" if "国内DNS" in c else (
-            "不在 cn → 走兜底组(代理出口)" if "境外DNS" in c else c)
-        print(f"{d:24s} {c:22s} {verdict}")
-    stop.set()
-    time.sleep(0.5)
+    # 收尾动作（停日志流 + 恢复日志级别）必须走 finally：Ctrl-C 或中途异常
+    # 都要把级别改回去，否则设备停在 debug 持续写 48MB 的 /tmp（P1-6）。
     try:
-        api("/configs", method="PATCH", body=json.dumps({"log-level": "info"}).encode(),
-            timeout=60, tries=20)
-    except Exception as e:
-        print("恢复日志级别失败:", e)
+        print(f"{'域名':24s} {'DNS 通道':22s} 判定")
+        for d in domains:
+            try:
+                dns_query(d)
+            except Exception as e:
+                print(f"{d:24s} 查询失败 {e}")
+                continue
+            time.sleep(1.2)
+            c = classify(d, None)
+            verdict = "在 cn 规则集 → 直连" if "国内DNS" in c else (
+                "不在 cn → 走兜底组(代理出口)" if "境外DNS" in c else c)
+            print(f"{d:24s} {c:22s} {verdict}")
+    finally:
+        stop.set()
+        time.sleep(0.5)
+        restore_log_level(orig_level)
     return 0
 
 

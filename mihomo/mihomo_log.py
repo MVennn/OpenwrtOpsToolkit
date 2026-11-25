@@ -8,7 +8,7 @@
 
 连接参数走环境变量：`MIHOMO_API`（默认 http://127.0.0.1:9999）、
 `MIHOMO_HOST` / `MIHOMO_PORT`、`MIHOMO_SECRET`（必填）。
-脚本会把 log-level 临时调到 debug，结束时恢复成 info。
+脚本会把 log-level 临时调到 debug，结束时恢复成进工具前的原级别（读不到则回落 info）。
 """
 import json, os, socket, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -55,33 +55,56 @@ def stream_logs(stop_at, level="debug"):
     s.close()
 
 
+def current_log_level(default="info"):
+    """读当前日志级别；读不到就回落 default（=旧版硬编码 info 的行为）。"""
+    try:
+        cfg = api("/configs", timeout=10, tries=2)   # 只探一次口径，别为一个读值拖慢工具
+        if isinstance(cfg, dict):
+            lv = cfg.get("log-level") or cfg.get("log_level")
+            if isinstance(lv, str) and lv.strip():
+                return lv.strip()
+    except Exception:
+        pass
+    return default
+
+
+def restore_log_level(level):
+    print(f"恢复日志级别 -> {level}")
+    try:
+        api("/configs", method="PATCH", body=json.dumps({"log-level": level}).encode(),
+            timeout=60, tries=20)
+    except Exception as e:
+        print("恢复失败:", e)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
     dur = float(sys.argv[1]) if len(sys.argv) > 1 else 20
     domains = sys.argv[2:]
-    print("切换日志级别 -> debug")
+    orig_level = current_log_level()
+    print(f"切换日志级别 -> debug（原级别 {orig_level}）")
     api("/configs", method="PATCH", body=json.dumps({"log-level": "debug"}).encode(),
         timeout=60, tries=20)
-    t_end = time.time() + dur
-    th = threading.Thread(target=stream_logs, args=(t_end,), daemon=True)
-    th.start()
-    time.sleep(1.5)
-    for d in domains:
-        try:
-            dns_query(d)
-            print("  触发查询:", d)
-        except Exception as e:
-            print("  查询失败", d, e)
-        time.sleep(1.0)
-    time.sleep(max(2, t_end - time.time() - 1))
-    print("恢复日志级别 -> info")
+    # 恢复动作必须走 finally：Ctrl-C / 任何异常都要把级别改回去，否则设备停在
+    # debug，debug 日志持续往 48MB 的 /tmp 里写，顶到 guardian 的 tmpfs 水位
+    # 就可能在最糟的时刻触发清理（P1-6）。恢复的是进工具前的原级别。
     try:
-        api("/configs", method="PATCH", body=json.dumps({"log-level": "info"}).encode(),
-            timeout=60, tries=20)
-    except Exception as e:
-        print("恢复失败:", e)
+        t_end = time.time() + dur
+        th = threading.Thread(target=stream_logs, args=(t_end,), daemon=True)
+        th.start()
+        time.sleep(1.5)
+        for d in domains:
+            try:
+                dns_query(d)
+                print("  触发查询:", d)
+            except Exception as e:
+                print("  查询失败", d, e)
+            time.sleep(1.0)
+        time.sleep(max(2, t_end - time.time() - 1))
+    finally:
+        restore_log_level(orig_level)
 
     print(f"\n=== 抓到的日志 {len(lines)} 行 ===")
     for t, p in lines:

@@ -80,27 +80,36 @@ def base_skip(rel: str) -> bool:
 
 
 def tracked_files() -> list[str]:
+    # core.quotepath=false + -z：git 默认把非 ASCII 路径转义成 \344\270\255，open() 会失败
+    # 并被静默跳过；-z 用 NUL 分隔、不做引号转义，配合下方按字节解码拿原始路径。
     try:
-        out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True)
+        out = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "ls-files", "-z"],
+            cwd=ROOT, capture_output=True)
     except FileNotFoundError:
         print("[FAIL] 找不到 git 命令")
         raise SystemExit(2)
     if out.returncode != 0:
-        print("[FAIL] git ls-files 失败：" + (out.stderr or "").strip())
+        print("[FAIL] git ls-files 失败：" + out.stderr.decode("utf-8", "replace").strip())
         raise SystemExit(2)
-    return [x for x in out.stdout.splitlines() if x.strip()]
+    return [x for x in out.stdout.decode("utf-8", "surrogateescape").split("\0") if x.strip()]
 
 
 def untracked_files() -> list[str]:
     # --all 的「未跟踪」遵循 .gitignore：忽略规则交给 git 判定，
     # gitignore 排除的本地文件（vault/、.work/ 等）不进扫描。
-    out = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=ROOT, capture_output=True, text=True)
-    if out.returncode != 0:
-        print("[FAIL] git ls-files --others 失败：" + (out.stderr or "").strip())
+    # 与 tracked_files 同样走 core.quotepath=false + -z，中文路径不会被转义后静默跳过。
+    try:
+        out = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "ls-files", "-z", "--others", "--exclude-standard"],
+            cwd=ROOT, capture_output=True)
+    except FileNotFoundError:
+        print("[FAIL] 找不到 git 命令")
         raise SystemExit(2)
-    return [x for x in out.stdout.splitlines() if x.strip()]
+    if out.returncode != 0:
+        print("[FAIL] git ls-files --others 失败：" + out.stderr.decode("utf-8", "replace").strip())
+        raise SystemExit(2)
+    return [x for x in out.stdout.decode("utf-8", "surrogateescape").split("\0") if x.strip()]
 
 
 def is_doc_file(rel: str) -> bool:

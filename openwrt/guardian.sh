@@ -155,6 +155,15 @@ AUTH="Authorization: Bearer $SECRET"
 # 每轮动作计数：收尾写进 guardian.state，排查时不用再 tail 日志拼「这轮修了什么」。
 FIXES=0; ERRORS=0; WARNS=0; WOULDFIX=0; ALERTS=0
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
+# 数字守卫（P1-1）：凡是要进 $(( )) 的值都先过这里。空内容或脏值在 busybox
+# ash 里是算术语法错误，会直接终止整个脚本——守护从此不再执行任何检测，日志
+# 里只留一行错误，没有自愈通道。第二个参数是回落默认值。
+num() {
+  case "${1:-}" in
+    ''|*[!0-9]*) printf '%s' "${2:-0}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 log() {
   case "$*" in
     FIX:*) FIXES=$((FIXES + 1)) ;;
@@ -350,7 +359,7 @@ else
   if pidof "$CORE_PROC" >/dev/null 2>&1; then
     log "WARN: $CORE_PROC 进程在但 API 无响应（可能正在热重载），本次不动作"
   else
-    LAST=$(cat "$ALIVEF" 2>/dev/null || echo 0)
+    LAST=$(num "$(cat "$ALIVEF" 2>/dev/null)")
     NOWT=$(date +%s)
     if [ -f "$PIDFILE" ] || [ $((NOWT - LAST)) -lt "$ALIVE_STALE_SEC" ]; then
       if [ "$DRY_RUN" = "1" ]; then
@@ -527,10 +536,29 @@ done
 
 # ---------- 5) 静默回退自愈 ----------
 # 配置校验失败时 ShellCrash 只打一行日志就回退基础配置，自定义组与规则全丢。
-if [ -n "$AI_FALLBACK_GROUP" ] && ! grep -Fq "name: $AI_FALLBACK_GROUP" "$RUNTIME_DIR/config.yaml" 2>/dev/null; then
+# 组名匹配要兼容 YAML 的「带引号 / 不带引号」两种形态；config.yaml 不存在时
+# 判不了「缺组」，按无法判断处理（只记 WARN、跳过热更新）。原来的写法对缺失
+# 文件与带引号组名都恒不匹配，于是每 FALLBACK_HEAL_INTERVAL 都误跑一次
+# hotupdate，FIX 计数虚高且反复重生成配置（P1-7）。
+_cfg_state="none"
+if [ -n "$AI_FALLBACK_GROUP" ]; then
+  if [ ! -f "$RUNTIME_DIR/config.yaml" ]; then
+    _cfg_state="unknown"
+  elif grep -Fq "name: $AI_FALLBACK_GROUP" "$RUNTIME_DIR/config.yaml" 2>/dev/null \
+    || grep -Fq "name: \"$AI_FALLBACK_GROUP\"" "$RUNTIME_DIR/config.yaml" 2>/dev/null \
+    || grep -Fq "name: '$AI_FALLBACK_GROUP'" "$RUNTIME_DIR/config.yaml" 2>/dev/null; then
+    _cfg_state="ok"
+  else
+    _cfg_state="missing"
+  fi
+fi
+if [ "$_cfg_state" = "unknown" ]; then
+  log "WARN: 读不到 $RUNTIME_DIR/config.yaml，无法判断是否缺 $AI_FALLBACK_GROUP 组，本轮跳过自愈"
+fi
+if [ "$_cfg_state" = "missing" ]; then
   LASTF="$RUNTIME_DIR/.last_fallback_heal"
   NOWT=$(date +%s)
-  PREV=$(cat "$LASTF" 2>/dev/null || echo 0)
+  PREV=$(num "$(cat "$LASTF" 2>/dev/null)")
   if [ $((NOWT - PREV)) -gt "$FALLBACK_HEAL_INTERVAL" ]; then
     if [ "$DRY_RUN" = "1" ]; then
       log "DRY-RUN: 运行配置缺 $AI_FALLBACK_GROUP 组，本应重跑 hotupdate"
@@ -548,7 +576,7 @@ fi
 # 地区判定探测：cc 变量在页面 1MB 之后，不要每次都拉。
 CCF="$RUNTIME_DIR/.cc_probe_ts"
 NOWT2=$(date +%s)
-LASTF2=$(cat "$CCF" 2>/dev/null || echo 0)
+LASTF2=$(num "$(cat "$CCF" 2>/dev/null)")
 if [ $((NOWT2 - LASTF2)) -ge 3600 ]; then
   echo $NOWT2 > "$CCF"
   CC=$($CURL -s -m 20 -x "$PROXY" "$CC_PROBE_URL" 2>/dev/null | grep -oE "var cc=.[A-Z]{2}" | head -1 | sed "s/var cc=.//")
@@ -583,24 +611,32 @@ fi
 # 一次 df 取「已用/总量」两个字段：原来连跑两次 df（各 2 个 fork），
 # 且两次读数之间 /tmp 还在涨，算出来的百分比本身就不自洽。
 TMPDF=$(df -k /tmp 2>/dev/null | awk 'END{print $3" "$2}')
-TMPK=${TMPDF%% *}
-TMPT=${TMPDF##* }
+TMPK=$(num "${TMPDF%% *}")
+TMPT=$(num "${TMPDF##* }")
 if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
   TMPP=$((TMPK * 100 / TMPT))
   if [ "$TMPP" -ge "$TMPFS_WARN_PCT" ]; then
     log "WARN: /tmp 内存盘已用 ${TMPP}%（${TMPK}K/${TMPT}K），接近撑爆会 OOM 并触发看门狗重启"
+    # 先关掉 pathname expansion，再展开清单（P1-4）。for 的 word 展开是先分词、
+    # 再做 glob：配置里写 /tmp/* 会在任何守卫之前就被展开成 /tmp 下每一个文件，
+    # 逐个通过 /tmp/?* 判定后被 rm -rf——等于清空整个 tmpfs。这里只接受字面路径，
+    # 含通配符的候选在校验阶段就被拒（校验在前、glob 不再发生）。
+    _noglob=0
+    case "$-" in *f*) _noglob=1 ;; esac
+    set -f
     for f in $TMPFS_CLEAN_FILES; do
       [ -z "$f" ] && continue
-      [ -e "$f" ] || continue
       # 白名单式清理（P28）。前缀判断不够：/tmp/../etc/passwd 也能通过 /tmp/*，
       # 而 "/tmp/" 自身会命中 /tmp/*（* 可匹配空串），rm -rf 就是清空整个 tmpfs。
-      # 所以先拦 .. 与 /tmp 本身，再要求 /tmp/ 后至少还有一个字符。
+      # 所以先拦通配符、.. 与 /tmp 本身，再要求 /tmp/ 后至少还有一个字符。
       case "$f" in
+        *'*'*|*'?'*|*'['*) log "SKIP: TMPFS_CLEAN_FILES 含通配符（$f），拒绝清理"; continue ;;
         *..*) log "SKIP: TMPFS_CLEAN_FILES 路径含 ..（$f），拒绝清理"; continue ;;
         /tmp|/tmp/) log "SKIP: TMPFS_CLEAN_FILES 不允许指向 /tmp 本身"; continue ;;
         /tmp/?*) ;;
         *) log "SKIP: TMPFS_CLEAN_FILES 含 /tmp 之外的路径 $f，拒绝清理"; continue ;;
       esac
+      [ -e "$f" ] || continue
       if [ "$DRY_RUN" = "1" ]; then
         log "DRY-RUN: 本应清理 /tmp 临时大文件 $f"
       else
@@ -608,6 +644,7 @@ if [ -n "$TMPK" ] && [ -n "$TMPT" ] && [ "$TMPT" -gt 0 ]; then
         log "FIX: 已清理 /tmp 临时大文件 $f"
       fi
     done
+    [ "$_noglob" = "1" ] || set +f
     TMPK2=$(df -k /tmp 2>/dev/null | awk 'END{print $3}')
     log "INFO: /tmp 清理后占用 ${TMPK2:-?}K/${TMPT}K"
   fi
