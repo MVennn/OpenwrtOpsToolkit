@@ -56,7 +56,7 @@
 
 模板升了之后，**用户那份不会自动变**。对账流程：
 
-```sh
+```bash
 # 1) 把新样例和用户配置摆一起看
 diff -u openwrt/conf/device.conf.example /etc/openwrt-ops/device.conf
 

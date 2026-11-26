@@ -16,7 +16,7 @@
 
 三者的关系是**串行的一条链**：
 
-```
+```text
 站点侧 cdn/  ──问「这个域名走哪条路」──▶  控制面 mihomo/  ──问「规则为什么这样生效」──▶  设备侧 openwrt/
      ▲                                                                                        │
      └──────────────── 结论落到设备上改配置 / 切组 ◀───────────────────────────────────────────┘
@@ -106,7 +106,7 @@
 
 ⇒ **配置文件永远盖不掉环境变量**。想临时改一个值，直接 `export`：
 
-```sh
+```bash
 NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 ```
 
@@ -114,7 +114,7 @@ NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
 
 载入前先 `sh -n "$OPS_CONF"`。**语法错误就整份跳过**，打一行警告，走内置默认值继续跑：
 
-```
+```text
 警告：配置文件 /etc/openwrt-ops/device.conf 语法错误，已忽略（走默认值）
 ```
 
@@ -439,7 +439,7 @@ nft 三表 / 实例锁 / 上一轮 `guardian.state` / 日志字节」就退出�
 `ops-status.sh` 不写任何东西（不取实例锁、不碰 nft / crontab / 进程、不写 tmpfs），
 只按 §3.1 的查找顺序读 `device.conf` 拿到**各脚本真正在用的路径**，再把状态拼成 JSON：
 
-```sh
+```bash
 sh ops-status.sh                # 默认就是 JSON
 sh ops-status.sh --json         # 同上
 sh ops-status.sh --self-check   # 人读自检（配置 / 依赖 / 权限 / 水位），结论行只用 ASCII（P44）
@@ -502,7 +502,7 @@ sh ops-status.sh --self-check   # 人读自检（配置 / 依赖 / 权限 / 水�
 
 ### 5.2 调用关系
 
-```
+```bash
                               ┌──────────────────────────────┐
                               │   mihomo 控制 API            │
                               │   127.0.0.1:9999（默认）     │

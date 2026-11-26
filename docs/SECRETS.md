@@ -1,4 +1,6 @@
 # 凭据与设备标识
+> 占位符语义（`<REDACTED-…>` / `<REPLACE-…>` / `<YOUR-…>`）与豁免统一见跨仓文档 `F:/Project/docs/PLACEHOLDERS.md`（在本仓库外，故意不写成仓内相对链接）。
+
 
 > **一句话**：本仓**存什么、不存什么**，以及真值该放在哪 —— **只写位置，不写值**。
 
@@ -58,7 +60,7 @@
 
 ## 4. 上传前检查清单
 
-```sh
+```bash
 # 1) 确认没把凭据文件带进去
 git ls-files | grep -E '\.(key|crt|pem)$|device\.conf$|opencode\.key'
 
@@ -90,7 +92,7 @@ CI（`.github/workflows/ci.yml`）的凭据扫描步骤会自动跑第 3 条。
 
 ---
 
-# 推送前脱敏规则（通用）
+## 推送前脱敏规则（通用）
 
 > **一句话**：推送前跑一次 `python tools/check-secrets.py`；它拦的是三类东西 ——
 > 可用凭据、本机用户目录、真实邮箱。规则对 8 个仓完全一致，一处改全局同步。
@@ -167,7 +169,7 @@ CI（`.github/workflows/ci.yml`）的凭据扫描步骤会自动跑第 3 条。
 
 ## 5. 推送前怎么做
 
-```sh
+```bash
 # 1) 扫已跟踪文件（CI 跑的就是这个，退出码 0 才能推）
 python tools/check-secrets.py
 

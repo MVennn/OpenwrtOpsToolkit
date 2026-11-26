@@ -47,7 +47,7 @@
 你打的补丁会被**静默冲掉**（没有任何报错）。
 本仓的对策是 `openwrt/post-sc-update.sh`：
 
-```
+```text
 PATCH_SPEC 格式：  <相对 CRASHDIR 的路径>=<标记1>,<标记2>
 ```
 
@@ -166,7 +166,7 @@ PATCH_SPEC 格式：  <相对 CRASHDIR 的路径>=<标记1>,<标记2>
 
 ### 4.2 上游更新后的处理流程
 
-```sh
+```bash
 # 1) 官方脚本更新完了，先看本仓的补丁还在不在
 sh openwrt/post-sc-update.sh check
 
@@ -188,7 +188,7 @@ sh openwrt/post-sc-update.sh
 
 ### 4.3 核对上游原文
 
-```sh
+```bash
 # OpenWrt 的某个文件（把 tag 换成对应固件版本）
 curl -sL https://raw.githubusercontent.com/openwrt/openwrt/v25.12.6/package/base-files/files/etc/init.d/done
 

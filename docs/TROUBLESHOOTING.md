@@ -18,11 +18,11 @@
 
 > 症状：WiFi 关联成功、有 IP、但什么都打不开；或者一会儿好一会儿坏。
 
-### 排查步骤
+### 排障步骤
 
 1. **先分清是「内网就断」还是「只有境外断」**。在设备上：
 
-   ```sh
+   ```bash
    nslookup www.baidu.com 127.0.0.1
    ```
 
@@ -31,7 +31,7 @@
 
 2. **看核心在不在、端口在不在**：
 
-   ```sh
+   ```bash
    pidof CrashCore
    netstat -lntp | grep -E ':7892|:9999|:1053'
    ```
@@ -40,7 +40,7 @@
 
 3. **看 DNS 劫持表在不在**（含 DNS 劫持的表若指向一个没监听的端口，内网解析全废）：
 
-   ```sh
+   ```bash
    nft list tables
    ```
 
@@ -48,7 +48,7 @@
 
 4. **看 `/var` 下的运行时目录**（`/var` 是指向 tmpfs 的软链，目录没了 dnsmasq 起不来）：
 
-   ```sh
+   ```bash
    ls -d /var/etc /var/lib /var/run /var/lock
    ```
 
@@ -56,7 +56,7 @@
 
 5. **看防火墙是不是半加载状态**：
 
-   ```sh
+   ```bash
    /etc/init.d/firewall restart
    ip -brief addr show | grep wan
    ip route show default
@@ -66,7 +66,7 @@
 
 6. **以上都正常还是不通** → 跑**只诊断不改动**的恢复脚本拿全量快照：
 
-   ```sh
+   ```bash
    sh openwrt/recover-now.sh check
    ```
 
@@ -92,11 +92,11 @@
 
 > 症状：核心进程还在，但 API 没响应（假死）；或者核心进程直接没了。
 
-### 排查步骤
+### 排障步骤
 
 1. **先确认是「假死」还是「真没」**：
 
-   ```sh
+   ```bash
    pidof CrashCore
    SECRET=$(sed -n 's/^secret=//p' /etc/ShellCrash/configs/ShellCrash.cfg | head -1)
    curl -s -m 5 -H "Authorization: Bearer $SECRET" http://127.0.0.1:9999/version
@@ -107,7 +107,7 @@
 
 2. **看守护有没有处理过**：
 
-   ```sh
+   ```bash
    tail -50 "$GUARDIAN_LOG"      # 默认 /tmp/ShellCrash/guardian.log
    logread | grep guardian
    ```
@@ -120,7 +120,7 @@
 
 4. **手动拉起**（守护判定为「人为停止」时不会自动拉，见 [第 9 节](#9-守护进程误判)）：
 
-   ```sh
+   ```bash
    sh /etc/ShellCrash/start.sh start
    ```
 
@@ -128,7 +128,7 @@
 
 5. **起来了但立刻又挂** → 多半是配置校验失败被回退：
 
-   ```sh
+   ```bash
    ls -l /tmp/ShellCrash/error.yaml
    ```
 
@@ -151,11 +151,11 @@
 
 > 症状：组的出口跑到了不该跑的节点上。
 
-### 排查步骤
+### 排障步骤
 
 1. **先看这个组现在选的是什么**：
 
-   ```sh
+   ```bash
    SECRET=$(sed -n 's/^secret=//p' /etc/ShellCrash/configs/ShellCrash.cfg | head -1)
    curl -s -H "Authorization: Bearer $SECRET" \
      "http://127.0.0.1:9999/proxies/<组名>" | grep -o '"now":"[^"]*"'
@@ -163,13 +163,13 @@
 
    或者用控制面工具（更方便）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py proxies "<组名>"
    ```
 
 2. **看真实出口**（组可能还套着「手动切换」这一层）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py proxies
    ```
 
@@ -179,7 +179,7 @@
 
 3. **看守护是否动过手**：
 
-   ```sh
+   ```bash
    grep -E 'FIX|ERROR' "$GUARDIAN_LOG" | tail -20
    ```
 
@@ -191,7 +191,7 @@
 
 5. **想手工切回去**：
 
-   ```sh
+   ```bash
    curl -s -X PUT -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
      -d "{\"name\":\"<目标节点或组>\"}" \
      "http://127.0.0.1:9999/proxies/<组名>"
@@ -214,17 +214,17 @@
 
 > 症状：规则配了，但流量没走那条。
 
-### 排查步骤
+### 排障步骤
 
 1. **先确认规则到底生成了没有** —— 运行态配置在 tmpfs 上：
 
-   ```sh
+   ```bash
    grep -n "你的规则关键字" /tmp/ShellCrash/config.yaml
    ```
 
 2. **看运行态有没有被回退**：
 
-   ```sh
+   ```bash
    ls -l /tmp/ShellCrash/error.yaml
    ```
 
@@ -233,13 +233,13 @@
 
 3. **看规则在列表里的位置** —— 靠后的规则可能被靠前的宽泛规则遮蔽：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py rulestats
    ```
 
 4. **要精确答案就跑审计**（离线读 `config.yaml` + `proxies.json`）：
 
-   ```sh
+   ```bash
    python3 mihomo/rule_audit.py <config.yaml> <proxies.json> <lists目录> REPORT.md
    ```
 
@@ -249,7 +249,7 @@
 
 5. **看某条规则实际命中了什么**（运行态证据）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
@@ -257,7 +257,7 @@
 
 6. **要抓某个域名到底走了哪条规则**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
@@ -275,17 +275,17 @@
 
 ## 5. 某个域名走了错误的路
 
-### 排查步骤
+### 排障步骤
 
 1. **先看这个域名现在解析到什么**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py dns <域名>
    ```
 
 2. **看它落在 cn 规则集内还是外**（决定 DNS 走国内还是境外）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_domain_classify.py <域名>
    ```
 
@@ -294,19 +294,19 @@
 
 3. **换个角度交叉验证**（看路由器**新产生**的 DNS 上游连接）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_dns_path.py <域名>
    ```
 
 4. **看它命中了哪条规则**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
 5. **看当前有没有连接、走的哪条链**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
@@ -330,11 +330,11 @@
 
 > 症状：图片、头像之类加载不出来。
 
-### 排查步骤
+### 排障步骤
 
 1. **把 DNS / TCP / TLS / HTTP 四段分开计时**：
 
-   ```sh
+   ```bash
    python3 cdn/qq_cdn_probe.py all
    ```
 
@@ -343,19 +343,19 @@
 
 2. **只看解析**（不同 DNS 给出不同结果 = 有污染或分线路）：
 
-   ```sh
+   ```bash
    python3 cdn/qq_cdn_probe.py dns
    ```
 
 3. **看这个域名在 cn 规则集内还是外**（走错通道是 CDN 打不开的头号原因）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_domain_classify.py <域名>
    ```
 
 4. **看它命中了哪条规则**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 cdn/qq_rule_probe.py <域名>
    ```
 
@@ -375,11 +375,11 @@
 
 > 症状：页面外壳能开但加载不全。
 
-### 排查步骤
+### 排障步骤
 
 1. **先确认目标站到底支不支持 QUIC**：
 
-   ```sh
+   ```bash
    python3 cdn/quic_probe.py
    ```
 
@@ -388,7 +388,7 @@
 
 2. **确认 UDP 是不是被透明代理漏过去了**（Redir 只代理 TCP，UDP 直出）：
 
-   ```sh
+   ```bash
    nft list table inet quicguard
    ```
 
@@ -397,7 +397,7 @@
 
 3. **看 mihomo 里的连接是不是停在半截**：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    ```
 
@@ -420,12 +420,12 @@
 
 ## 8. 设备重启后服务起不来
 
-### 排查步骤
+### 排障步骤
 
 1. **确认不是「本机漂到别的 SSID」**（笔记本自动连了另一个已保存的网络，
    看起来像路由器挂了）：
 
-   ```sh
+   ```bash
    ipconfig        # IPv4 是不是还在路由器的网段
    route print     # 有没有到路由器网段的路由
    arp -a          # 路由器的 MAC 还在不在
@@ -433,13 +433,13 @@
 
 2. **确认是重启还是半死**：
 
-   ```sh
+   ```bash
    uptime          # 刚重启的话，uptime 会很小
    ```
 
 3. **看开机自启链路**：
 
-   ```sh
+   ```bash
    grep "mkdir -p" /etc/rc.local
    ls -d /tmp/ShellCrash
    ls -d /var/etc /var/lib /var/run
@@ -447,7 +447,7 @@
 
 4. **看守护有没有把 cron 补回来**：
 
-   ```sh
+   ```bash
    crontab -l
    ```
 
@@ -455,13 +455,13 @@
 
 5. **看核心起没起**：
 
-   ```sh
+   ```bash
    netstat -lntp | grep -E ':7892|:9999|:1053'
    ```
 
 6. **兜底**：跑一次只诊断的恢复脚本看全貌，再决定是否执行完整修复：
 
-   ```sh
+   ```bash
    sh openwrt/recover-now.sh check
    sh openwrt/recover-now.sh        # 完整修复
    ```
@@ -482,11 +482,11 @@
 
 > 症状：该动的没动，或不该动的动了。
 
-### 排查步骤
+### 排障步骤
 
 1. **一条命令看现状**（只读，不取锁、不写日志，可以在守护跑的同一分钟执行）：
 
-   ```sh
+   ```bash
    sh /etc/ShellCrash/guardian.sh --status
    ```
 
@@ -497,7 +497,7 @@
 2. **看守护这几轮到底动了什么**：`guardian.state` 里有 `fixes` / `errors` / `warns` /
    `wouldfix` 四个计数（干跑只涨 `wouldfix`），`ts` 是这一轮的时间：
 
-   ```sh
+   ```bash
    cat /tmp/ShellCrash/ops-guardian.state   # 两版同装时先看这个
    cat /tmp/ShellCrash/guardian.state       # AX3000TOpenwrt 版守护写的
    ```
@@ -505,14 +505,14 @@
    `ts` 比现在还旧 `1800` 秒以上（守护 cron 是 `*/5`，等于连丢 6 轮）→ 先查 cron 和
    日志，别拿这份状态当现状（P54）。要看更细的动作就翻日志：
 
-   ```sh
+   ```bash
    grep -E 'FIX|ALERT|ERROR|WARN' "$GUARDIAN_LOG" | tail -30
    logread | grep guardian
    ```
 
 3. **不确定它会不会动，就先干跑**：
 
-   ```sh
+   ```bash
    sh openwrt/guardian.sh --dry-run
    ```
 
@@ -520,7 +520,7 @@
 
 4. **「该动却没动」→ 查配置键是否配全**：
 
-   ```sh
+   ```bash
    sh -n "$DEVICE_CONF"                       # 语法对不对
    grep -E '^(AI_GROUP|CLEAN_GROUP|CLEAN_NODE|POOL_GROUP|POOL_FALLBACK_GROUP|AI_BAD_NODES|POOL_BLOCKED_NODES)=' "$DEVICE_CONF"
    ```
@@ -530,7 +530,7 @@
 
 5. **「不该动却动了」→ 查坏节点通配是不是太宽**：
 
-   ```sh
+   ```bash
    grep -E '^(AI_BAD_NODES|POOL_BLOCKED_NODES)=' "$DEVICE_CONF"
    ```
 
@@ -542,7 +542,7 @@
 
 7. **维护前后记得停/挂守护**：
 
-   ```sh
+   ```bash
    sed -i '/guardian/d' /etc/crontabs/root && /etc/init.d/cron restart   # 停
    # ...维护...
    echo "*/5 * * * * /bin/ash /etc/ShellCrash/guardian.sh" >> /etc/crontabs/root
@@ -561,17 +561,17 @@
 
 > 症状：连接超时，或一律 401 Unauthorized。
 
-### 排查步骤
+### 排障步骤
 
 1. **先看端口在不在**：
 
-   ```sh
+   ```bash
    netstat -lntp | grep 9999
    ```
 
 2. **看能不能连通**（不带鉴权也应返回 401，而不是超时）：
 
-   ```sh
+   ```bash
    curl -s -o /dev/null -w '%{http_code}\n' -m 5 http://127.0.0.1:9999/version
    ```
 
@@ -582,7 +582,7 @@
    `/etc/ShellCrash/configs/ShellCrash.cfg` 的 `secret=` 行。
    `openwrt/guardian.sh` 也是从那里**现读**的，脚本里不存凭据。
 
-   ```sh
+   ```bash
    grep '^secret=' /etc/ShellCrash/configs/ShellCrash.cfg
    ```
 
@@ -608,11 +608,11 @@
 
 ## 11. 审计结果与实况对不上
 
-### 排查步骤
+### 排障步骤
 
 1. **确认审计输入的 `config.yaml` 是**运行态那份：
 
-   ```sh
+   ```bash
    ls -l /tmp/ShellCrash/config.yaml
    ```
 
@@ -620,14 +620,14 @@
 
 2. **看实况**（运行态证据）：
 
-   ```sh
+   ```bash
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py conns
    MIHOMO_SECRET='<REDACTED-MIHOMO-SECRET>' python3 mihomo/mihomo_api.py rulestats
    ```
 
 3. **看有没有 `error.yaml`**（被回退过）：
 
-   ```sh
+   ```bash
    ls -l /tmp/ShellCrash/error.yaml
    ```
 
@@ -651,17 +651,17 @@
 
 > 症状：表不在了，或者规则写了却不生效。
 
-### 排查步骤
+### 排障步骤
 
 1. **看表在不在**：
 
-   ```sh
+   ```bash
    nft list tables
    ```
 
 2. **不在 → 看守护补了没**：
 
-   ```sh
+   ```bash
    grep 'nft 表' "$GUARDIAN_LOG" | tail
    ```
 
@@ -671,7 +671,7 @@
 3. **在，但规则不对** —— 守护**只管「表缺失」，不管「内容对错」**。
    手工重载，注意要**先 destroy 再 load**：
 
-   ```sh
+   ```bash
    nft destroy table inet quicguard
    nft -f /etc/quicguard.nft
    nft list table inet quicguard      # 确认规则真的在
@@ -688,7 +688,7 @@
 6. **开机时表没加载**：含 DNS 劫持的表要**等核心 DNS 端口就绪**才加载；
    `rc.local` 等不到就交给守护补载。查 syslog：
 
-   ```sh
+   ```bash
    logread | grep rc.local
    ```
 
@@ -702,12 +702,12 @@
 
 ## 13. 设备突然整机重启
 
-### 排查步骤
+### 排障步骤
 
 1. **看是不是 OOM**（重启原因在 RAM 型 tmpfs 上，重启即丢，
    要靠 overlay 上持久化的日志反查）：
 
-   ```sh
+   ```bash
    dmesg | tail -40
    awk '/^MemAvailable/{print}' /proc/meminfo
    df -k /tmp
@@ -717,7 +717,7 @@
 
 3. **看守护的水位告警**：
 
-   ```sh
+   ```bash
    grep -E '内存|tmpfs|内存盘' "$GUARDIAN_LOG" | tail
    ```
 
@@ -725,7 +725,7 @@
 
 4. **看是不是被看门狗重启**（代理挂了触发的整机重启）：
 
-   ```sh
+   ```bash
    logread | grep -iE 'watchdog|reboot'
    ```
 
@@ -749,11 +749,11 @@
 
 ## 14. 工具报配置语法错误
 
-### 排查步骤
+### 排障步骤
 
 1. 配置文件按 **shell 语法**解析，所以先过一遍语法检查：
 
-   ```sh
+   ```bash
    sh -n /etc/openwrt-ops/device.conf
    ```
 
@@ -764,7 +764,7 @@
 
 4. 只想临时覆盖一两个值，用**环境变量**绕过配置文件：
 
-   ```sh
+   ```bash
    NFT_TABLES="quicguard" sh openwrt/guardian.sh --dry-run
    ```
 
@@ -788,11 +788,11 @@
 
 ## 16. 流量统计不更新 / 数字不对（traffic-stats.sh）
 
-### 排查步骤
+### 排障步骤
 
 1. **看当日文件在不在、动没动**：
 
-   ```sh
+   ```bash
    ls -l /etc/ShellCrash/stats/ && tail -5 "/etc/ShellCrash/stats/$(date +%Y-%m-%d).tsv"
    ```
 
@@ -801,7 +801,7 @@
 
    刚恢复 cron 时**先看缓冲再看 tsv**：
 
-   ```sh
+   ```bash
    ls -l /tmp/ShellCrash/traffic-stats.buf.* /etc/ShellCrash/stats/
    ```
 
@@ -811,7 +811,7 @@
 
 2. **手动采样一次**（secret 读不到会打一行 stderr 提示）：
 
-   ```sh
+   ```bash
    sh /etc/ShellCrash/traffic-stats.sh
    ```
 
@@ -819,7 +819,7 @@
    （默认 `127.0.0.1:9999`），secret 运行时从 `ShellCrash.cfg` 的 `secret=` 行现读。
    下面这条应返回含 `"connections"` 的 JSON：
 
-   ```sh
+   ```bash
    port=$(grep -oE '^CTRL_PORT=[0-9]+' /etc/openwrt-ops/device.conf 2>/dev/null | cut -d= -f2)
    curl -s -H "Authorization: Bearer $(sed -n 's/^secret=//p' /etc/ShellCrash/configs/ShellCrash.cfg)" \
      "http://127.0.0.1:${port:-9999}/connections" | head -c 200
@@ -867,9 +867,9 @@
 里有分组数 / 规则数却没有 `配置校验内核：…`，或出现
 `ash: /etc/ShellCrash/CrashCore.raw: not found`；容易误判成全过。
 
-### 排查步骤
+### 排障步骤
 
-```sh
+```bash
 ssh root@<REPLACE-ROUTER-LAN-IP> 'ls -l /etc/ShellCrash/CrashCore.* /tmp/ShellCrash/CrashCore'
 ssh root@<REPLACE-ROUTER-LAN-IP> 'grep -nE "CORE_BIN|CrashCore.upx|配置校验内核|未找到可执行内核" /etc/ShellCrash/post-sc-update.sh'
 ssh root@<REPLACE-ROUTER-LAN-IP> 'tail -12 /root/post-sc-update.log'

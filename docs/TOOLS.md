@@ -5,7 +5,7 @@
 
 ## 目录结构
 
-```
+```bash
 OpenwrtOpsToolkit/
 ├─ openwrt/
 │  ├─ guardian.sh            网络守护：出口组复原 / nft 表补载 / 探活；收尾写 guardian.state（--status 只读体检）

@@ -13,8 +13,8 @@
 CRASHDIR=/etc/ShellCrash
 
 # 守护要盯的策略组名（你订阅里的组名，不是本项目固定的）
-AI_GROUP="你的 AI 接口组名"
-CLEAN_GROUP="你的干净出口组名"
+AI_GROUP="<YOUR-AI-GROUP>"
+CLEAN_GROUP="<YOUR-CLEAN-GROUP>"
 
 # 出口组里的节点（正则），用来判断出口组有没有被改坏
 CLEAN_NODE="你的干净节点名"

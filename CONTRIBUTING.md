@@ -4,7 +4,7 @@
 
 ## 跑起来
 
-```sh
+```bash
 # 设备配置：复制样例后按自己的环境改
 cp openwrt/conf/device.conf.example openwrt/conf/device.conf
 
@@ -75,5 +75,4 @@ CI（`.github/workflows/ci.yml`）跑的就是这三样，外加一条**明文�
 
 ## 提交信息
 
-Conventional Commits：`feat:` `fix:` `docs:` `chore:` `refactor:` `test:` `perf:`。
-多个改动**按对象拆行**（一行一个对象），不要打包成"代码整理"。
+Conventional Commits（`type(scope): subject`，按对象拆行）；tag 用 `vMAJOR.MINOR.PATCH`，只在发版时创建。完整口径见跨仓 [GIT-WORKFLOW.md](../docs/GIT-WORKFLOW.md)。
