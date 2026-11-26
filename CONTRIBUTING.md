@@ -75,4 +75,4 @@ CI（`.github/workflows/ci.yml`）跑的就是这三样，外加一条**明文�
 
 ## 提交信息
 
-Conventional Commits（`type(scope): subject`，按对象拆行）；tag 用 `vMAJOR.MINOR.PATCH`，只在发版时创建。完整口径见跨仓 [GIT-WORKFLOW.md](../docs/GIT-WORKFLOW.md)。
+Conventional Commits（`type(scope): subject`，按对象拆行）；tag 用 `vMAJOR.MINOR.PATCH`，只在发版时创建。完整口径见跨仓共享文档 GIT-WORKFLOW.md（随文档库分发，单仓检出时以本节口径为准）。
